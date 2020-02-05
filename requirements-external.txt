@@ -13,5 +13,6 @@ cartopy
 matplotlib
 netCDF4
 scipy
+pytest
 mpi4py
 petsc4py
