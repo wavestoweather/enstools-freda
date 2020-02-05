@@ -109,8 +109,8 @@ class UnstructuredGrid:
                 indices = np.zeros(0, dtype=PETSc.RealType)
                 indices_test = indices
             # add global indices as new variable to the grid
-            self.addVariable("global_indices", values=indices, comm=self.comm)
-            self.addVariable("global_indices_test", values=indices_test, comm=self.comm)
+            self.addVariable("global_indices", values=indices)
+            self.addVariable("global_indices_test", values=indices_test)
             # get the global form (no ghost points)  of the indices
             self.plex.localToGlobal(self.variables["global_indices"], self.temporal_vectors_global[1])
             # scatter this indices to process zero and and filter out ghost points
@@ -136,9 +136,9 @@ class UnstructuredGrid:
             clat = np.empty(0)
         log_and_time("calculating cartesian coordinates", logging.INFO, False, self.comm)
         log_and_time("distributing coordinate fields", logging.INFO, True, self.comm)
-        self.addVariable("clon", values=clon, comm=self.comm)
-        self.addVariable("clat", values=clat, comm=self.comm)
-        self.addVariable("coordinates_cartesian", values=coords, comm=self.comm)
+        self.addVariable("clon", values=clon)
+        self.addVariable("clat", values=clat)
+        self.addVariable("coordinates_cartesian", values=coords)
         log_and_time("distributing coordinate fields", logging.INFO, False, self.comm)
         log_and_time("distributing support information", logging.INFO, False, self.comm)
         log_and_time("UnstructuredGrid.__init__()", logging.INFO, False, self.comm)
@@ -267,7 +267,7 @@ class UnstructuredGrid:
             dof = 1
         return dof
 
-    def addVariable(self, name, values=None, dof=None, comm=None):
+    def addVariable(self, name, values=None, dof=None):
         """
         create a new vector on the grid.
 
@@ -287,18 +287,18 @@ class UnstructuredGrid:
         dof = self.__getDoFforArray(values, dof)
 
         # the first dimension must be the number of cells
-        if onRank0(comm) and values is not None and not values.shape[0] == self.ncells:
+        if onRank0(self.comm) and values is not None and not values.shape[0] == self.ncells:
             raise ValueError(
                 f"Variable {name}: shape has not the number of grid cells in the first dimension: {values.shape}")
 
         # when values are provided, a corresponding section if created
         if values is not None and not dof in self.sections_on_zero:
             self.__createNonDistributedSection(dof)
-            if isGt1(comm):
+            if isGt1(self.comm):
                 self.__createDistributedSection(dof)
 
         # create a new variable with the appropriate section
-        if isGt1(comm):
+        if isGt1(self.comm):
             if dof in self.sections_distributed:
                 self.plex.setSection(self.sections_distributed[dof])
                 self.variables[name] = self.plex.createLocalVec()
@@ -320,6 +320,7 @@ class UnstructuredGrid:
 
         # store information about this variable
         if values is not None:
+            # use the real shape of the given array
             if isGt1(self.comm):
                 partition_sizes = self.temporal_vectors_local[1].getSizes()[0], self.temporal_vectors_global[1].getSizes()[0]
                 shape_on_zero = self.comm_mpi4py.bcast(values.shape)
@@ -330,14 +331,27 @@ class UnstructuredGrid:
                 shape_on_zero = list(shape_on_zero)
                 shape_on_zero[0] = 0
                 shape_on_zero = tuple(shape_on_zero)
-            self.variables_info[name] = VariableInfo(dof=dof, shape_on_zero=shape_on_zero, partition_sizes=partition_sizes)
         else:
-            self.variables_info[name] = VariableInfo(dof=dof, shape_on_zero=None)
+            # use the default shape given by the DoF
+            if dof > 1:
+                shape_on_zero = (self.ncells, dof)
+            else:
+                shape_on_zero = (self.ncells,)
+            if isGt1(self.comm):
+                partition_sizes = self.temporal_vectors_local[1].getSizes()[0], self.temporal_vectors_global[1].getSizes()[0]
+            else:
+                partition_sizes = self.ncells, self.ncells
+            if self.mpi_rank > 0:
+                shape_on_zero = list(shape_on_zero)
+                shape_on_zero[0] = 0
+                shape_on_zero = tuple(shape_on_zero)
+        self.variables_info[name] = VariableInfo(dof=dof, shape_on_zero=shape_on_zero, partition_sizes=partition_sizes)
 
+        # if we have already values, scatter them to all processes
         if values is not None:
-            self.scatterData(name, values=values, dof=dof, comm=comm)
+            self.scatterData(name, values=values, dof=dof)
 
-    def scatterData(self, name, values=None, dof=None, comm=None):
+    def scatterData(self, name, values=None, dof=None):
         """
 
         Parameters
@@ -349,7 +363,7 @@ class UnstructuredGrid:
         -------
 
         """
-        log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, True, comm)
+        log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, True, self.comm)
         # make sure we have data continuous in memory
         if values is not None:
             values = np.require(values, requirements="C")
@@ -357,7 +371,7 @@ class UnstructuredGrid:
         if isGt1(self.comm):
             # on rank 0 write the data into the total grid vector
             dof = self.__getDoFforArray(values, dof)
-            if comm is not None and comm.Get_rank() == 0:
+            if onRank0(self.comm):
                 self.temporal_vectors_on_zero[dof].getArray()[:] = values.ravel()
             self.temporal_vectors_on_zero[dof].assemble()
 
@@ -371,7 +385,7 @@ class UnstructuredGrid:
             #self.plex.localToGlobal(newvec, self.variables[name])
         else:
             self.variables[name].getArray()[:] = values.ravel()
-        log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, False, comm)
+        log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, False, self.comm)
 
     def gatherData(self, name, insert_mode=PETSc.InsertMode.INSERT):
         """
@@ -434,10 +448,15 @@ class UnstructuredGrid:
         -------
         np.array
         """
+        # without multiple processes, global and local arrays are identical
+        if not isGt1(self.comm):
+            return self.getLocalArray(name)
+        # for multiple processes we have to use localToGlobal function
         dof = self.variables_info[name].dof
         self.plex.setSection(self.sections_distributed[dof])
         self.plex.localToGlobal(self.variables[name], self.temporal_vectors_global[dof])
-        self.plex.setSection(self.sections_distributed[1])
+        if dof != 1:
+            self.plex.setSection(self.sections_distributed[1])
         result_array = np.copy(self.temporal_vectors_global[dof].getArray())
         # reshape the result is required
         if self.variables_info[name].shape_global is not None and self.variables_info[name].shape_global != result_array.shape:
@@ -458,7 +477,7 @@ class UnstructuredGrid:
         -------
         np.array
         """
-        result_array = np.copy(self.variables[name].getArray())
+        result_array = self.variables[name].getArray()
         # reshape the result is required
         if self.variables_info[name].shape_local is not None and self.variables_info[name].shape_local != result_array.shape:
             result_array = np.require(result_array.reshape(self.variables_info[name].shape_local), requirements="C")
