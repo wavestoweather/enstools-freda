@@ -1,1 +1,1 @@
--e git+git@gitlab.physik.uni-muenchen.de:w2w/enstools.git#egg=enstools
+-e git+git@gitlab.physik.uni-muenchen.de:w2w/enstools.git@nda-dev#egg=enstools
