@@ -663,7 +663,7 @@ class UnstructuredGrid:
             self.getLocalArray(name)[dest_indices, ...] = buffers_recv[rank]
         
         # wait for all to have a consistent state
-        self.comm.barrier()
+        self.variables[name].assemble()
 
 class VariableInfo():
     """
