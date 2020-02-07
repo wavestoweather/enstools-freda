@@ -133,4 +133,96 @@ def test_grid_with_overlap(grid_with_overlap, gridfile, comm):
     if onRank0(comm) and isGt1(comm):
         assert ranks.max() > comm.Get_size()
         assert ranks.max() <= np.sum(np.arange(comm.Get_size()) + 1)
+ 
+    # check the owned sizes on each rank
+    if isGt1(comm):
+        # everyone should now the sizes owned be every other process
+        assert grid_with_overlap.owned_sizes[comm.Get_rank()] == grid_with_overlap.temporal_vectors_global[1].getSizes()[0]
+ 
+        # check if owned indices are correctly labeled as owned.
+        owner = grid_with_overlap.getGlobalArray("owner")
+        np.testing.assert_array_equal(owner, comm.Get_rank())
+
+        # make sure the ghost region is not owned by the rank itself
+        owner = grid_with_overlap.getLocalArray("owner")
+        np.testing.assert_array_equal(owner[:grid_with_overlap.owned_sizes[comm.Get_rank()]], comm.Get_rank())
+        ghost = owner[grid_with_overlap.owned_sizes[comm.Get_rank()]:]
+        np.testing.assert_equal(ghost != comm.Get_rank(), True)
+        np.testing.assert_equal(ghost < comm.Get_size(), True)
+        
+        # make sure, that only owned points have indices for remote ghost points
+        for rank in range(comm.Get_size()):
+            if rank != comm.Get_rank() and rank in grid_with_overlap.ghost_mapping:
+                assert grid_with_overlap.ghost_mapping[rank].local_indices_that_are_remote_ghost.max() < grid_with_overlap.owned_sizes[comm.Get_rank()]
+                assert grid_with_overlap.ghost_mapping[rank].remote_indices_of_ghosts.size > 0
+
+        # make sure, that only ghost points have indices for remotely owned points
+        for rank in range(comm.Get_size()):
+            if rank != comm.Get_rank() and rank in grid_with_overlap.ghost_mapping:
+                # remote indices are remotely owned
+                assert grid_with_overlap.ghost_mapping[rank].remote_indices_that_are_local_ghost.max() < grid_with_overlap.owned_sizes[rank]
+                # we must have local indices of ghosts
+                assert grid_with_overlap.ghost_mapping[rank].local_indices_of_ghosts.size > 0
+                # local indices of ghosts must be in the local ghost range
+                assert grid_with_overlap.ghost_mapping[rank].local_indices_of_ghosts.min() >= grid_with_overlap.owned_sizes[comm.Get_rank()]
+
     comm.barrier()
+
+
+def test_grid_remove_variable(grid_with_overlap, comm):
+    """
+    add and remove a variable from the grid
+    """
+
+    # add a variable with DoF=1
+    grid_with_overlap.addVariable("test", values=np.arange(grid_with_overlap.ncells, dtype=PETSc.RealType))
+
+    # remove variable again. Support structured for dof=1 should never be removed
+    grid_with_overlap.removeVariable("test")
+    assert "test" not in grid_with_overlap.variables
+    assert "test" not in grid_with_overlap.variables_info
+    assert 1 in grid_with_overlap.sections_on_zero
+    if isGt1(comm) and onRank0(comm):
+        assert 1 in grid_with_overlap.scatter_to_zero_is
+    
+    # add a larger variable
+    grid_with_overlap.addVariable("test", values=np.zeros((grid_with_overlap.ncells, 90), dtype=PETSc.RealType))
+    # retrieve it once, that will create the scatter context
+    test = grid_with_overlap.gatherData("test")
+    if onRank0(comm):
+        assert test.shape == (grid_with_overlap.ncells, 90)
+    assert 90 in grid_with_overlap.sections_on_zero
+    if isGt1(comm) and onRank0(comm):
+        assert 90 in grid_with_overlap.scatter_to_zero_is
+
+    # remove the variable again
+    grid_with_overlap.removeVariable("test")
+    assert 90 not in grid_with_overlap.sections_on_zero
+    if isGt1(comm) and onRank0(comm):
+        assert 90 not in grid_with_overlap.scatter_to_zero_is
+
+
+def test_ghost_update(grid_with_overlap, comm):
+    """
+    create a variable with random noise and transfer ghost regions 
+    """
+    noise = np.random.rand(grid_with_overlap.ncells)
+    grid_with_overlap.addVariable("noise", values=noise)
+
+    # with more than one task, we can check the update. Modify the array including
+    # Ghost region on task 1, update, check ghost region on task 0
+    if isGt1(comm):
+        # modify content incl. ghost on one processor
+        local_noise = grid_with_overlap.getLocalArray("noise")
+        if comm.Get_rank() == 1:
+            local_noise[:] = 1
+        grid_with_overlap.variables["noise"].assemble()
+
+        # perform the update
+        grid_with_overlap.updateOwnerToGhost("noise")
+
+        # check the update
+        updated_noise = grid_with_overlap.getLocalArray("noise")
+        if comm.Get_rank() == 0:
+            np.testing.assert_array_equal(updated_noise[grid_with_overlap.ghost_mapping[1].local_indices_of_ghosts], 1)
+        
