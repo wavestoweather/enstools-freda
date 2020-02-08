@@ -3,6 +3,7 @@ from .logging import log_on_rank, log_and_time
 from ..mpi import onRank0, isGt1
 from enstools.misc import spherical2cartesien
 from petsc4py import PETSc
+from typing import Dict
 import numpy as np
 import zlib
 
@@ -140,7 +141,7 @@ class UnstructuredGrid:
             # a forward and backward mapping of all ghost points
             self.addVariable("ghost_indices")
             self.getLocalArray("ghost_indices")[:] = 0
-            self.ghost_mapping = {}
+            self.ghost_mapping: Dict[int, GhostMapping] = {}
             # array with all indices that have some ghost a ghost assigned to it.
             self.ghost_mapping_all_owned_with_remote_ghost = np.empty(0, dtype=PETSc.IntType)
             for one_rank in range(self.mpi_size):
@@ -587,7 +588,7 @@ class UnstructuredGrid:
             result_array = np.require(result_array.reshape(self.variables_info[name].shape_local), requirements="C")
         return result_array
 
-    def updateOwnerToGhost(self, name: str, owner_indices=None):
+    def updateGhost(self, name: str, local_indices: np.array = None, direction: str = "O2G"):
         """
         Copy changes made on an array by the owner to users of the Ghost points on other processors.
         This function makes use of arrays obtained by calls to getLocalArray.
@@ -597,21 +598,74 @@ class UnstructuredGrid:
         name: str
                 name of the variable to update
         
-        owner_indices: np.array
-                local indices on the owner process that should be copied to neighours. If None, the complete 
+        local_indices: np.array
+                local indices on the owner process that should be copied to neighbours. If None, the complete 
                 overlapping region is updated.
+
+        direction: {'O2G', 'G2O'}
+                communication direction: owner to ghost (O2G) or ghost to owner (G2O). The default is to copy locally
+                updated owned grid points to remote ghosts.
         """
         # do nothing if we are running with one processor only
         if not isGt1(self.comm):
             return
-        
-        # if not otherwise specified, all indices with Ghost values are updated
-        if owner_indices is None:
-            update_all = True
-            owner_indices = self.ghost_mapping_all_owned_with_remote_ghost
-        else:
-            update_all = False
-        
+
+        # unless a full update is performed, the receiver needs to know which indices are on the way. Here everyone
+        # tells everyone what indices are intended for transmission
+        if local_indices is not None:
+            remote_indices = self.comm_mpi4py.allgather(local_indices)
+
+        # construct source and destination indices for each remote rank.
+        indices_send = {}
+        indices_recv = {}
+        for rank in self.ghost_mapping:
+            # send our data to external users
+            if direction == "O2G":
+                # select the indices that the current rank should send to the rank "rank".
+                if local_indices is not None:
+                    _indices_send = np.intersect1d(local_indices,
+                                                   self.ghost_mapping[rank].local_indices_that_are_remote_ghost,
+                                                   assume_unique=True)
+                else:
+                    _indices_send = self.ghost_mapping[rank].local_indices_that_are_remote_ghost
+                if _indices_send.size > 0:
+                    indices_send[rank] = _indices_send
+                # select the indices that the remote rank should use to write the received values to
+                if local_indices is not None:
+                    _, _, _indices_of_indices = np.intersect1d(remote_indices[rank],
+                                                               self.ghost_mapping[rank].remote_indices_that_are_local_ghost,
+                                                               assume_unique=True,
+                                                               return_indices=True)
+                    _indices_recv = self.ghost_mapping[rank].local_indices_of_ghosts[_indices_of_indices]
+                else:
+                    _indices_recv = self.ghost_mapping[rank].local_indices_of_ghosts
+                if _indices_recv.size > 0:
+                    indices_recv[rank] = _indices_recv
+            # get data back form external users and take over their changes
+            elif direction == "G2O":
+                # select the indices that the current rank should send to the rank "rank".
+                if local_indices is not None:
+                    _indices_send = np.intersect1d(local_indices,
+                                                   self.ghost_mapping[rank].local_indices_of_ghosts,
+                                                   assume_unique=True)
+                else:
+                    _indices_send = self.ghost_mapping[rank].local_indices_of_ghosts
+                if _indices_send.size > 0:
+                    indices_send[rank] = _indices_send
+                # select the indices that the remote rank should use to write the received values to
+                if local_indices is not None:
+                    _, _, _indices_of_indices = np.intersect1d(remote_indices[rank],
+                                                               self.ghost_mapping[rank].remote_indices_of_ghosts,
+                                                               assume_unique=True,
+                                                               return_indices=True)
+                    _indices_recv = self.ghost_mapping[rank].local_indices_that_are_remote_ghost[_indices_of_indices]
+                else:
+                    _indices_recv = self.ghost_mapping[rank].local_indices_that_are_remote_ghost
+                if _indices_recv.size > 0:
+                    indices_recv[rank] = _indices_recv
+            else:
+                raise NotImplementedError("only update direction O2G and G2O are implemented!")
+
         # get information about thw variable. we need to know the number of dimensions
         buffer_shape = list(self.variables_info[name].shape_local)
         dims = len(buffer_shape)
@@ -621,33 +675,30 @@ class UnstructuredGrid:
 
         # create a buffer for sending and receiving 
         buffers_send = {}
-        for rank in self.ghost_mapping:
-            if self.ghost_mapping[rank].local_indices_that_are_remote_ghost.size > 0:
-                buffer_shape[0] = self.ghost_mapping[rank].local_indices_that_are_remote_ghost.size
-                buffers_send[rank] = np.empty(tuple(buffer_shape), dtype=PETSc.RealType)
+        for rank in indices_send:
+            buffer_shape[0] = indices_send[rank].size
+            buffers_send[rank] = np.empty(tuple(buffer_shape), dtype=PETSc.RealType)
         buffers_recv = {}
-        for rank in self.ghost_mapping:
-            if self.ghost_mapping[rank].remote_indices_that_are_local_ghost.size > 0:
-                buffer_shape[0] = self.ghost_mapping[rank].remote_indices_that_are_local_ghost.size
-                buffers_recv[rank] = np.empty(tuple(buffer_shape), dtype=PETSc.RealType)
+        for rank in indices_recv:
+            buffer_shape[0] = indices_recv[rank].size
+            buffers_recv[rank] = np.empty(tuple(buffer_shape), dtype=PETSc.RealType)
 
         # start asynchronous receivers 
         requests_resv = {}
-        for rank in self.ghost_mapping:
-            if self.ghost_mapping[rank].remote_indices_that_are_local_ghost.size > 0:
-                requests_resv[rank] = self.comm_mpi4py.Irecv(buffers_recv[rank], source=rank, tag=name_tag)
+        for rank in indices_recv:
+            requests_resv[rank] = self.comm_mpi4py.Irecv(buffers_recv[rank], source=rank, tag=name_tag)
 
-        # make sure that all ranks have their receivers up
+        # make sure that all ranks have their receivers up. Otherwise the MPI implementation may allocates
+        # additional buffers on the receiver side.
         self.comm.barrier()
 
         # start sending the data
         requests_send = {}
-        for rank in self.ghost_mapping:
-            if self.ghost_mapping[rank].local_indices_that_are_remote_ghost.size > 0:
-                # copy the data from the source array
-                buffers_send[rank][:, ...] = self.getLocalArray(name)[self.ghost_mapping[rank].local_indices_that_are_remote_ghost, ...]
-                # start the sender
-                requests_send[rank] = self.comm_mpi4py.Isend(buffers_send[rank], dest=rank, tag=name_tag)
+        for rank in indices_send:
+            # copy the data from the source array
+            buffers_send[rank][:, ...] = self.getLocalArray(name)[indices_send[rank], ...]
+            # start the sender
+            requests_send[rank] = self.comm_mpi4py.Isend(buffers_send[rank], dest=rank, tag=name_tag)
 
         # wait for all communication to complete
         for req in requests_send:
@@ -657,10 +708,8 @@ class UnstructuredGrid:
         
         # copy results into the destination position
         for rank in buffers_recv:
-            # get the indices in the destination array
-            dest_indices = self.ghost_mapping[rank].local_indices_of_ghosts
             # copy the data
-            self.getLocalArray(name)[dest_indices, ...] = buffers_recv[rank]
+            self.getLocalArray(name)[indices_recv[rank], ...] = buffers_recv[rank]
         
         # wait for all to have a consistent state
         self.variables[name].assemble()

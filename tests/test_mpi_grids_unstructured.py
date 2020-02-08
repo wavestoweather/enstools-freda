@@ -220,10 +220,23 @@ def test_ghost_update(grid_with_overlap, comm):
         grid_with_overlap.variables["noise"].assemble()
 
         # perform the update
-        grid_with_overlap.updateOwnerToGhost("noise")
+        grid_with_overlap.updateGhost("noise", local_indices=np.arange(grid_with_overlap.ncells, dtype=PETSc.IntType))
 
         # check the update
         updated_noise = grid_with_overlap.getLocalArray("noise")
         if comm.Get_rank() == 0:
             np.testing.assert_array_equal(updated_noise[grid_with_overlap.ghost_mapping[1].local_indices_of_ghosts], clon[grid_with_overlap.ghost_mapping[1].local_indices_of_ghosts])
-        
+
+        # perform an update in the other direction.
+        clat = grid_with_overlap.getLocalArray("clat")
+        if comm.Get_rank() == 1:
+            updated_noise[:] = clat
+        grid_with_overlap.variables["noise"].assemble()
+
+        # perform the update
+        grid_with_overlap.updateGhost("noise", direction="G2O", local_indices=np.arange(grid_with_overlap.ncells, dtype=PETSc.IntType))
+
+        # check the result
+        updated_noise = grid_with_overlap.getLocalArray("noise")
+        if comm.Get_rank() == 0:
+            np.testing.assert_array_equal(updated_noise[grid_with_overlap.ghost_mapping[1].local_indices_that_are_remote_ghost], clat[grid_with_overlap.ghost_mapping[1].local_indices_that_are_remote_ghost])
