@@ -115,7 +115,7 @@ def test_grid_with_overlap(grid_with_overlap, gridfile, comm):
         np.testing.assert_array_equal(clon_gathered, clon_original)
     
     # create a new array, write the rank in this array
-    grid_with_overlap.addVariable("rank")
+    grid_with_overlap.addVariablePETSc("rank")
     if isGt1(comm):
         assert grid_with_overlap.variables["rank"].getSize() < grid_with_overlap.ncells
     grid_with_overlap.getLocalArray("rank")[:] = comm.Get_rank() + 1
@@ -175,7 +175,7 @@ def test_grid_remove_variable(grid_with_overlap, comm):
     """
 
     # add a variable with DoF=1
-    grid_with_overlap.addVariable("test", values=np.arange(grid_with_overlap.ncells, dtype=PETSc.RealType))
+    grid_with_overlap.addVariablePETSc("test", values=np.arange(grid_with_overlap.ncells, dtype=PETSc.RealType))
 
     # remove variable again. Support structured for dof=1 should never be removed
     grid_with_overlap.removeVariable("test")
@@ -186,7 +186,7 @@ def test_grid_remove_variable(grid_with_overlap, comm):
         assert 1 in grid_with_overlap.scatter_to_zero_is
     
     # add a larger variable
-    grid_with_overlap.addVariable("test", values=np.zeros((grid_with_overlap.ncells, 90), dtype=PETSc.RealType))
+    grid_with_overlap.addVariablePETSc("test", values=np.zeros((grid_with_overlap.ncells, 90), dtype=PETSc.RealType))
     # retrieve it once, that will create the scatter context
     test = grid_with_overlap.gatherData("test")
     if onRank0(comm):
@@ -207,7 +207,7 @@ def test_ghost_update(grid_with_overlap, comm):
     create a variable with random noise and transfer ghost regions 
     """
     noise = np.random.rand(grid_with_overlap.ncells)
-    grid_with_overlap.addVariable("noise", values=noise)
+    grid_with_overlap.addVariablePETSc("noise", values=noise)
 
     # with more than one task, we can check the update. Modify the array including
     # Ghost region on task 1, update, check ghost region on task 0
@@ -251,3 +251,73 @@ def test_ghost_update(grid_with_overlap, comm):
 
         # check result
         np.testing.assert_array_equal(updated_noise[grid_with_overlap.owned_sizes[comm.Get_rank()]:], clat[grid_with_overlap.owned_sizes[comm.Get_rank()]:])
+
+
+def test_scatter(grid_with_overlap: UnstructuredGrid, comm):
+    """
+    test scattering of data from one process holding the full field to all others.
+    """
+    # create a new numpy variable and a new PETSc variable. Both get the same data to scatter.
+    grid_with_overlap.addVariable("scatter1", shape=(grid_with_overlap.ncells,))
+    grid_with_overlap.addVariablePETSc("scatter2")
+
+    # generate random data and distribute is in both methods
+    grid_with_overlap.buffer_size_limit = 102400
+    noise = np.require(np.random.rand(grid_with_overlap.ncells), dtype=PETSc.RealType)
+    grid_with_overlap.scatterData("scatter1", noise, update_ghost=True)
+    grid_with_overlap.scatterData("scatter2", noise)
+
+    # compare the owned and ghost data
+    np.testing.assert_array_equal(grid_with_overlap.variables["scatter1"], grid_with_overlap.variables["scatter2"].getArray())
+
+    # create a variable with more dimensions
+    if onRank0(comm):
+        noiseNd = np.empty((grid_with_overlap.ncells, 17), dtype=PETSc.RealType)
+        for i in range(17):
+            noiseNd[:, i] = noise + i
+    else:
+        noiseNd = np.empty(0, dtype=PETSc.RealType)
+    grid_with_overlap.addVariable("scatter3", values=noiseNd, update_ghost=True)
+
+    # use the content of scatter1 to check second dimension of scatter3
+    for i in range(17):
+        np.testing.assert_array_equal(grid_with_overlap.variables["scatter3"][:, i], grid_with_overlap.variables["scatter1"] + i)
+
+
+def test_gather(grid_with_overlap: UnstructuredGrid, comm):
+    """
+    test gathering of data from all processes onto one process
+    """
+    # create a new numpy variable and scatter it at first to all processes
+    noise = np.require(np.random.rand(grid_with_overlap.ncells), dtype=PETSc.RealType)
+    grid_with_overlap.addVariable("gather1", values=noise)
+
+    # gather the data back and test the result
+    gathered = grid_with_overlap.gatherData("gather1")
+    if onRank0(comm):
+        np.testing.assert_array_equal(noise, gathered)
+    else:
+        assert gathered.size == 0
+
+    # distribute the noise array over all processes and check on another process the content when gathered there
+    if isGt1(comm):
+        if not onRank0(comm):
+            noise = np.empty(0, dtype=PETSc.RealType)
+        noise = comm.tompi4py().bcast(noise)
+
+        # gather the data on processor 1
+        gathered2 = grid_with_overlap.gatherData("gather1", dest=1)
+        if comm.Get_rank() == 1:
+            np.testing.assert_array_equal(noise, gathered2)
+        else:
+            assert gathered2.size == 0
+
+    # distribute an multidimensional array and gather it back
+    noiseNd = np.require(np.random.rand(grid_with_overlap.ncells, 3, 5), dtype=PETSc.RealType)
+    grid_with_overlap.addVariable("gather2", values=noiseNd)
+
+    gathered2 = grid_with_overlap.gatherData("gather2")
+    if onRank0(comm):
+        np.testing.assert_array_equal(noiseNd, gathered2)
+    else:
+        assert gathered2.size == 0
