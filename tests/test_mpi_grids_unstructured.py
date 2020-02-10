@@ -117,10 +117,10 @@ def test_grid_with_overlap(grid_with_overlap, gridfile, comm):
     # create a new array, write the rank in this array
     grid_with_overlap.addVariablePETSc("rank")
     if isGt1(comm):
-        assert grid_with_overlap.variables["rank"].getSize() < grid_with_overlap.ncells
+        assert grid_with_overlap.getLocalArray("rank").size < grid_with_overlap.ncells
     grid_with_overlap.getLocalArray("rank")[:] = comm.Get_rank() + 1
-    grid_with_overlap.variables["rank"].assemble()
-    
+    grid_with_overlap.assemblePETSc("rank")
+
     # check that all local values have the value of the rank
     rank_on_processor_without_overlap = grid_with_overlap.getLocalArray("rank")
     rank_on_processor_with_overlap = grid_with_overlap.getGlobalArray("rank")
@@ -136,8 +136,8 @@ def test_grid_with_overlap(grid_with_overlap, gridfile, comm):
  
     # check the owned sizes on each rank
     if isGt1(comm):
-        # everyone should now the sizes owned be every other process
-        assert grid_with_overlap.owned_sizes[comm.Get_rank()] == grid_with_overlap.temporal_vectors_global[1].getSizes()[0]
+        # everyone should now have the sizes owned be every other process
+        assert grid_with_overlap.owned_sizes[comm.Get_rank()] == grid_with_overlap.getGlobalArray("rank").size
  
         # check if owned indices are correctly labeled as owned.
         owner = grid_with_overlap.getGlobalArray("owner")
@@ -169,7 +169,7 @@ def test_grid_with_overlap(grid_with_overlap, gridfile, comm):
     comm.barrier()
 
 
-def test_grid_remove_variable(grid_with_overlap, comm):
+def test_grid_remove_variable(grid_with_overlap: UnstructuredGrid, comm):
     """
     add and remove a variable from the grid
     """
@@ -179,30 +179,20 @@ def test_grid_remove_variable(grid_with_overlap, comm):
 
     # remove variable again. Support structured for dof=1 should never be removed
     grid_with_overlap.removeVariable("test")
-    assert "test" not in grid_with_overlap.variables
-    assert "test" not in grid_with_overlap.variables_info
-    assert 1 in grid_with_overlap.sections_on_zero
-    if isGt1(comm) and onRank0(comm):
-        assert 1 in grid_with_overlap.scatter_to_zero_is
-    
+
+    # try the get the local array of the removed variable
+    with pytest.raises(KeyError):
+        grid_with_overlap.getLocalArray("test")
+
     # add a larger variable
     grid_with_overlap.addVariablePETSc("test", values=np.zeros((grid_with_overlap.ncells, 90), dtype=PETSc.RealType))
     # retrieve it once, that will create the scatter context
     test = grid_with_overlap.gatherData("test")
     if onRank0(comm):
         assert test.shape == (grid_with_overlap.ncells, 90)
-    assert 90 in grid_with_overlap.sections_on_zero
-    if isGt1(comm) and onRank0(comm):
-        assert 90 in grid_with_overlap.scatter_to_zero_is
-
-    # remove the variable again
-    grid_with_overlap.removeVariable("test")
-    assert 90 not in grid_with_overlap.sections_on_zero
-    if isGt1(comm) and onRank0(comm):
-        assert 90 not in grid_with_overlap.scatter_to_zero_is
 
 
-def test_ghost_update(grid_with_overlap, comm):
+def test_ghost_update(grid_with_overlap: UnstructuredGrid, comm):
     """
     create a variable with random noise and transfer ghost regions 
     """
@@ -217,7 +207,7 @@ def test_ghost_update(grid_with_overlap, comm):
         clon = grid_with_overlap.getLocalArray("clon")
         if comm.Get_rank() == 1:
             local_noise[:] = clon[:]
-        grid_with_overlap.variables["noise"].assemble()
+        grid_with_overlap.assemblePETSc("noise")
 
         # perform the update
         grid_with_overlap.updateGhost("noise", local_indices=np.arange(grid_with_overlap.ncells, dtype=PETSc.IntType))
@@ -231,7 +221,7 @@ def test_ghost_update(grid_with_overlap, comm):
         clat = grid_with_overlap.getLocalArray("clat")
         if comm.Get_rank() != 0:
             updated_noise[:] = clat
-        grid_with_overlap.variables["noise"].assemble()
+        grid_with_overlap.assemblePETSc("noise")
 
         # perform the update
         grid_with_overlap.updateGhost("noise", direction="G2O", local_indices=np.arange(grid_with_overlap.ncells, dtype=PETSc.IntType))
@@ -246,7 +236,7 @@ def test_ghost_update(grid_with_overlap, comm):
         # try an update with reduced buffer size
         grid_with_overlap.buffer_size_limit = 128
         updated_noise[:grid_with_overlap.owned_sizes[comm.Get_rank()]] = clat[:grid_with_overlap.owned_sizes[comm.Get_rank()]]
-        grid_with_overlap.variables["noise"].assemble()
+        grid_with_overlap.assemblePETSc("noise")
         grid_with_overlap.updateGhost("noise", direction="O2G", local_indices=np.arange(grid_with_overlap.ncells, dtype=PETSc.IntType))
 
         # check result
@@ -268,7 +258,7 @@ def test_scatter(grid_with_overlap: UnstructuredGrid, comm):
     grid_with_overlap.scatterData("scatter2", noise)
 
     # compare the owned and ghost data
-    np.testing.assert_array_equal(grid_with_overlap.variables["scatter1"], grid_with_overlap.variables["scatter2"].getArray())
+    np.testing.assert_array_equal(grid_with_overlap.getLocalArray("scatter1"), grid_with_overlap.getLocalArray("scatter2"))
 
     # create a variable with more dimensions
     if onRank0(comm):
@@ -281,7 +271,7 @@ def test_scatter(grid_with_overlap: UnstructuredGrid, comm):
 
     # use the content of scatter1 to check second dimension of scatter3
     for i in range(17):
-        np.testing.assert_array_equal(grid_with_overlap.variables["scatter3"][:, i], grid_with_overlap.variables["scatter1"] + i)
+        np.testing.assert_array_equal(grid_with_overlap.getLocalArray("scatter3")[:, i], grid_with_overlap.getLocalArray("scatter1") + i)
 
 
 def test_gather(grid_with_overlap: UnstructuredGrid, comm):
