@@ -83,7 +83,7 @@ class UnstructuredGrid:
         self.temporal_vectors_on_zero = {}
         self.temporal_vectors_local = {}
         self.temporal_vectors_global = {}
-        self.variables_info = {}
+        self.variables_info: Dict[str, VariableInfo] = {}
         self.variables = {}
         # create default section with dof=1 on rank=0
         self.__createNonDistributedSection(dof=1)
@@ -162,17 +162,20 @@ class UnstructuredGrid:
                 if one_rank != self.mpi_rank and (owned_by_remote_indices.size > 0 or indices_with_ghosts.size > 0):
                     # create mapping for this rank
                     self.ghost_mapping[one_rank] = GhostMapping(
-                        rank = one_rank,
-                        local_indices_that_are_remote_ghost = indices_with_ghosts,
-                        remote_indices_of_ghosts = ghost_indices_local[indices_with_ghosts],
-                        remote_indices_that_are_local_ghost = owned_by_remote_indices,
-                        local_indices_of_ghosts = owned_by_remote_rank
+                        rank=one_rank,
+                        local_indices_that_are_remote_ghost=indices_with_ghosts,
+                        remote_indices_of_ghosts=ghost_indices_local[indices_with_ghosts],
+                        remote_indices_that_are_local_ghost=owned_by_remote_indices,
+                        local_indices_of_ghosts=owned_by_remote_rank
                     )
                     # add points to mapping for all ranks
                     self.ghost_mapping_all_owned_with_remote_ghost = np.append(self.ghost_mapping_all_owned_with_remote_ghost, indices_with_ghosts)
             self.ghost_mapping_all_owned_with_remote_ghost.sort()
             self.ghost_mapping_all_owned_with_remote_ghost = np.unique(self.ghost_mapping_all_owned_with_remote_ghost)
             self.removeVariable("ghost_indices")
+
+            # set limit for transfer buffers. 128MB
+            self.buffer_size_limit = 1048576 * 128
 
         log_and_time("distributing the DMPlex on all processors", logging.INFO, False, self.comm)
         log_and_time("creating and distributing the PETSc grid", logging.INFO, False, self.comm)
@@ -609,13 +612,16 @@ class UnstructuredGrid:
         # do nothing if we are running with one processor only
         if not isGt1(self.comm):
             return
+        log_and_time(f"UnstructuredGrid.updateGhost({name})", logging.INFO, True, self.comm)
 
         # unless a full update is performed, the receiver needs to know which indices are on the way. Here everyone
         # tells everyone what indices are intended for transmission
         if local_indices is not None:
             remote_indices = self.comm_mpi4py.allgather(local_indices)
 
-        # construct source and destination indices for each remote rank.
+        # construct source and destination indices for each remote rank and find the maximal number of indices
+        # to transfer
+        max_indices_to_transfer = 0
         indices_send = {}
         indices_recv = {}
         for rank in self.ghost_mapping:
@@ -630,6 +636,7 @@ class UnstructuredGrid:
                     _indices_send = self.ghost_mapping[rank].local_indices_that_are_remote_ghost
                 if _indices_send.size > 0:
                     indices_send[rank] = _indices_send
+                    max_indices_to_transfer = max(max_indices_to_transfer, _indices_send.size)
                 # select the indices that the remote rank should use to write the received values to
                 if local_indices is not None:
                     _, _, _indices_of_indices = np.intersect1d(remote_indices[rank],
@@ -641,6 +648,7 @@ class UnstructuredGrid:
                     _indices_recv = self.ghost_mapping[rank].local_indices_of_ghosts
                 if _indices_recv.size > 0:
                     indices_recv[rank] = _indices_recv
+                    max_indices_to_transfer = max(max_indices_to_transfer, _indices_recv.size)
             # get data back form external users and take over their changes
             elif direction == "G2O":
                 # select the indices that the current rank should send to the rank "rank".
@@ -652,6 +660,7 @@ class UnstructuredGrid:
                     _indices_send = self.ghost_mapping[rank].local_indices_of_ghosts
                 if _indices_send.size > 0:
                     indices_send[rank] = _indices_send
+                    max_indices_to_transfer = max(max_indices_to_transfer, _indices_send.size)
                 # select the indices that the remote rank should use to write the received values to
                 if local_indices is not None:
                     _, _, _indices_of_indices = np.intersect1d(remote_indices[rank],
@@ -663,56 +672,73 @@ class UnstructuredGrid:
                     _indices_recv = self.ghost_mapping[rank].local_indices_that_are_remote_ghost
                 if _indices_recv.size > 0:
                     indices_recv[rank] = _indices_recv
+                    max_indices_to_transfer = max(max_indices_to_transfer, _indices_recv.size)
             else:
                 raise NotImplementedError("only update direction O2G and G2O are implemented!")
 
         # get information about thw variable. we need to know the number of dimensions
-        buffer_shape = list(self.variables_info[name].shape_local)
-        dims = len(buffer_shape)
+        buffer_shape = list(self.variables_info[name].shape_on_zero)
 
-        # use a checksum of the name as tag in MPI messages
-        name_tag = zlib.crc32(name.encode()) // 2
+        # calculate the maximal number of indices to transfer at once taking the maximal buffer size into account.
+        if onRank0(self.comm):
+            max_indices_in_buffer = int(max(1, np.rint(self.buffer_size_limit / 4 / (self.mpi_size - 1) / (np.prod(buffer_shape) / self.ncells))))
+        else:
+            max_indices_in_buffer = None
+        max_indices_in_buffer = self.comm_mpi4py.bcast(max_indices_in_buffer)
 
-        # create a buffer for sending and receiving 
-        buffers_send = {}
-        for rank in indices_send:
-            buffer_shape[0] = indices_send[rank].size
-            buffers_send[rank] = np.empty(tuple(buffer_shape), dtype=PETSc.RealType)
-        buffers_recv = {}
-        for rank in indices_recv:
-            buffer_shape[0] = indices_recv[rank].size
-            buffers_recv[rank] = np.empty(tuple(buffer_shape), dtype=PETSc.RealType)
+        # split up the transfer into smaller chunks to make sure, the the totally used buffer size remains below the
+        # total buffer limit.
+        for start_index in range(0, max_indices_to_transfer, max_indices_in_buffer):
+            # use a checksum of the name as tag in MPI messages
+            name_tag = zlib.crc32(f"{name}{start_index}".encode()) // 2
 
-        # start asynchronous receivers 
-        requests_resv = {}
-        for rank in indices_recv:
-            requests_resv[rank] = self.comm_mpi4py.Irecv(buffers_recv[rank], source=rank, tag=name_tag)
+            # create a buffer for sending and receiving
+            buffers_send = {}
+            for rank in indices_send:
+                buffer_shape[0] = max(0, min(indices_send[rank].size - start_index, max_indices_in_buffer))
+                if buffer_shape[0] == 0 and rank in buffers_send:
+                    del buffers_send[rank]
+                elif buffer_shape[0] > 0:
+                    if (rank in buffers_send and buffers_send[rank].shape != tuple(buffer_shape)) or rank not in buffers_send:
+                        buffers_send[rank] = np.empty(tuple(buffer_shape), dtype=PETSc.RealType)
+            buffers_recv = {}
+            for rank in indices_recv:
+                buffer_shape[0] = max(0, min(indices_recv[rank].size - start_index, max_indices_in_buffer))
+                if buffer_shape[0] == 0 and rank in buffers_recv:
+                    del buffers_recv[rank]
+                elif buffer_shape[0] > 0:
+                    if (rank in buffers_recv and buffers_recv[rank].shape != tuple(buffer_shape)) or rank not in buffers_recv:
+                        buffers_recv[rank] = np.empty(tuple(buffer_shape), dtype=PETSc.RealType)
 
-        # make sure that all ranks have their receivers up. Otherwise the MPI implementation may allocates
-        # additional buffers on the receiver side.
-        self.comm.barrier()
+            # start asynchronous receivers
+            requests_resv = {}
+            for rank in buffers_recv:
+                requests_resv[rank] = self.comm_mpi4py.Irecv(buffers_recv[rank], source=rank, tag=name_tag)
 
-        # start sending the data
-        requests_send = {}
-        for rank in indices_send:
-            # copy the data from the source array
-            buffers_send[rank][:, ...] = self.getLocalArray(name)[indices_send[rank], ...]
-            # start the sender
-            requests_send[rank] = self.comm_mpi4py.Isend(buffers_send[rank], dest=rank, tag=name_tag)
+            # start sending the data
+            requests_send = {}
+            for rank in buffers_send:
+                # copy the data from the source array
+                buffers_send[rank][:, ...] = self.getLocalArray(name)[indices_send[rank][start_index:start_index + max_indices_in_buffer], ...]
+                # start the sender
+                requests_send[rank] = self.comm_mpi4py.Isend(buffers_send[rank], dest=rank, tag=name_tag)
 
-        # wait for all communication to complete
-        for req in requests_send:
-            requests_send[req].wait()
-        for req in requests_resv:
-            requests_resv[req].wait()
-        
-        # copy results into the destination position
-        for rank in buffers_recv:
-            # copy the data
-            self.getLocalArray(name)[indices_recv[rank], ...] = buffers_recv[rank]
+            # wait for all communication to complete
+            for req in requests_send:
+                requests_send[req].wait()
+            for req in requests_resv:
+                requests_resv[req].wait()
+
+            # copy results into the destination position
+            for rank in buffers_recv:
+                # copy the data
+                self.getLocalArray(name)[indices_recv[rank][start_index:start_index + max_indices_in_buffer], ...] = buffers_recv[rank]
         
         # wait for all to have a consistent state
+        self.comm.barrier()
         self.variables[name].assemble()
+        log_and_time(f"UnstructuredGrid.updateGhost({name})", logging.INFO, False, self.comm)
+
 
 class VariableInfo():
     """

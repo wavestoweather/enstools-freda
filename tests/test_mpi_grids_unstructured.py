@@ -229,7 +229,7 @@ def test_ghost_update(grid_with_overlap, comm):
 
         # perform an update in the other direction.
         clat = grid_with_overlap.getLocalArray("clat")
-        if comm.Get_rank() == 1:
+        if comm.Get_rank() != 0:
             updated_noise[:] = clat
         grid_with_overlap.variables["noise"].assemble()
 
@@ -239,4 +239,15 @@ def test_ghost_update(grid_with_overlap, comm):
         # check the result
         updated_noise = grid_with_overlap.getLocalArray("noise")
         if comm.Get_rank() == 0:
-            np.testing.assert_array_equal(updated_noise[grid_with_overlap.ghost_mapping[1].local_indices_that_are_remote_ghost], clat[grid_with_overlap.ghost_mapping[1].local_indices_that_are_remote_ghost])
+            np.testing.assert_array_equal(
+                updated_noise[grid_with_overlap.ghost_mapping[1].local_indices_that_are_remote_ghost],
+                clat[grid_with_overlap.ghost_mapping[1].local_indices_that_are_remote_ghost])
+
+        # try an update with reduced buffer size
+        grid_with_overlap.buffer_size_limit = 128
+        updated_noise[:grid_with_overlap.owned_sizes[comm.Get_rank()]] = clat[:grid_with_overlap.owned_sizes[comm.Get_rank()]]
+        grid_with_overlap.variables["noise"].assemble()
+        grid_with_overlap.updateGhost("noise", direction="O2G", local_indices=np.arange(grid_with_overlap.ncells, dtype=PETSc.IntType))
+
+        # check result
+        np.testing.assert_array_equal(updated_noise[grid_with_overlap.owned_sizes[comm.Get_rank()]:], clat[grid_with_overlap.owned_sizes[comm.Get_rank()]:])
