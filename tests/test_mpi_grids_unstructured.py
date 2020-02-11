@@ -331,3 +331,10 @@ def test_scatter_and_gather_partial(grid_with_overlap: UnstructuredGrid, comm):
 
     # compare both field
     np.testing.assert_array_equal(grid_with_overlap.getLocalArray("sg1"), grid_with_overlap.getLocalArray("sg2"))
+
+    # create a new local array and piecewise gather the original variable into it
+    noise2 = np.empty_like(noise, dtype=PETSc.RealType)
+    for i in range(3):
+        grid_with_overlap.gatherData("sg2", part=(i, ...), values=noise2[:, i, :])
+    if onRank0(comm):
+        np.testing.assert_array_equal(noise, noise2)

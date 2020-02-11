@@ -636,7 +636,7 @@ class UnstructuredGrid:
                         if part is None:
                             owned_shape = self._variables[name].shape
                         else:
-                            owned_shape = self._variables[name][(slice(0, self.ncells),) + part].shape
+                            owned_shape = self._variables[name][(slice(None),) + part].shape
                         owned_shape = (max(0,
                                            min(self.owned_sizes[self.mpi_rank] - start_index, max_indices_in_buffer)),
                                        ) + owned_shape[1:]
@@ -670,7 +670,7 @@ class UnstructuredGrid:
                                     requests_send[rank] = self.comm_mpi4py.Isend(buffers_send[rank], dest=rank, tag=name_tag)
                                 else:
                                     if part is None:
-                                        dest_indices = (slice(start_index,start_index + buffer_end - buffer_start), ...)
+                                        dest_indices = (slice(start_index, start_index + buffer_end - buffer_start), ...)
                                     else:
                                         dest_indices = (slice(start_index, start_index + buffer_end - buffer_start),) + part
                                     self._variables[name][dest_indices] = values[self._permutation_indices[buffer_start:buffer_end], ...]
@@ -733,7 +733,7 @@ class UnstructuredGrid:
                 self._variables[name].getArray()[:] = values.ravel()
         log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, False, self.comm)
 
-    def gatherData(self, name: str, dest: int = 0, insert_mode=PETSc.InsertMode.INSERT) -> np.ndarray:
+    def gatherData(self, name: str, dest: int = 0, values: np.ndarray = None, insert_mode=PETSc.InsertMode.INSERT, part: Tuple = None) -> np.ndarray:
         """
         collect the distributed data of one array into a local folder
 
@@ -745,6 +745,9 @@ class UnstructuredGrid:
         dest: int
                 rank of the processor which should collect all data
 
+        values: np.ndarray
+                the array given here can be used as result array in combination with the `part` argument.
+
         Returns
         -------
         np.ndarray:
@@ -755,16 +758,31 @@ class UnstructuredGrid:
 
         # distinguish between numpy and PETSc arrays
         if isinstance(self._variables[name], np.ndarray):
-            if isGt1(self.comm):
-                # create a result array that is large enough for the complete array
-                global_shape = list(self._variables[name].shape)
-                global_shape[0] = self.ncells
-                global_shape = tuple(global_shape)
-                if self.mpi_rank == dest:
-                    result_array = np.empty(global_shape, dtype=self._variables[name].dtype)
-                else:
-                    result_array = np.empty(0, dtype=self._variables[name].dtype)
+            # communicate the part variable if given on the source
+            if part is not None and isGt1(self.comm):
+                part = self.comm_mpi4py.bcast(part, root=dest)
 
+            # create a result array that is large enough for the complete array
+            if part is None:
+                global_shape = self._variables[name].shape
+            else:
+                global_shape = self._variables[name][(slice(None),) + part].shape
+            global_shape = (self.ncells,) + global_shape[1:]
+            if self.mpi_rank == dest:
+                # use an existing array for the results. This makes partial gathering easier.
+                if values is not None:
+                    if values.shape != global_shape:
+                        raise ValueError(
+                            f"gatherData: values argument is given but has the wrong shape: expected: {global_shape}, given: {values.shape}")
+                    else:
+                        result_array = values
+                else:
+                    result_array = np.empty(global_shape, dtype=self._variables[name].dtype)
+            else:
+                result_array = np.empty((0,) + global_shape[1:], dtype=self._variables[name].dtype)
+
+            # gather data from other processes
+            if isGt1(self.comm):
                 # limit the indices transmitted at once
                 max_indices_in_buffer = self._max_indices_to_buffer(name, buffers_per_rank=self.mpi_size)
                 buffer_send = None
@@ -782,9 +800,11 @@ class UnstructuredGrid:
                             owned_end = owned_start + self.owned_sizes[rank]
                             buffer_start = owned_start + start_index
                             buffer_end = min(buffer_start + max_indices_in_buffer, owned_end)
-                            buffer_shape = list(self._variables[name].shape)
-                            buffer_shape[0] = max(0, buffer_end - buffer_start)
-                            buffer_shape = tuple(buffer_shape)
+                            if part is None:
+                                buffer_shape = self._variables[name].shape
+                            else:
+                                buffer_shape = self._variables[name][(slice(None),) + part].shape
+                            buffer_shape = (max(0, buffer_end - buffer_start), ) + buffer_shape[1:]
                             if buffer_shape[0] > 0:
                                 if rank != dest:
                                     if (rank in buffers_recv and buffers_recv[rank].shape != buffer_shape) or rank not in buffers_recv:
@@ -792,7 +812,11 @@ class UnstructuredGrid:
                                     requests_recv[rank] = self.comm_mpi4py.Irecv(buffers_recv[rank], source=rank, tag=name_tag)
                                     buffers_recv_range[rank] = (buffer_start, buffer_end)
                                 else:
-                                    result_array[self._permutation_indices[buffer_start:buffer_end, ...]] = self._variables[name][start_index:start_index + buffer_end - buffer_start, ...]
+                                    if part is None:
+                                        source_indices = (slice(start_index, start_index + buffer_end - buffer_start), ...)
+                                    else:
+                                        source_indices = (slice(start_index, start_index + buffer_end - buffer_start),) + part
+                                    result_array[self._permutation_indices[buffer_start:buffer_end, ...]] = self._variables[name][source_indices]
                             else:
                                 if rank in buffers_recv:
                                     del buffers_recv[rank]
@@ -801,15 +825,23 @@ class UnstructuredGrid:
 
                     # all processors start one sender
                     if self.mpi_rank != dest:
-                        owned_shape = list(self._variables[name].shape)
-                        owned_shape[0] = max(0, min(self.owned_sizes[self.mpi_rank] - start_index, max_indices_in_buffer))
-                        owned_shape = tuple(owned_shape)
+                        if part is None:
+                            owned_shape = self._variables[name].shape
+                        else:
+                            owned_shape = self._variables[name][(slice(None),) + part].shape
+                        owned_shape = (max(0,
+                                           min(self.owned_sizes[self.mpi_rank] - start_index, max_indices_in_buffer)),
+                                       ) + owned_shape[1:]
                         # start receiver only if something to send remains
                         if owned_shape[0] > 0:
                             # a new buffer is created only if the size of the buffer has to change
                             if buffer_send is None or buffer_send.shape != owned_shape:
                                 buffer_send = np.empty(owned_shape, dtype=self._variables[name].dtype)
-                            buffer_send = self._variables[name][start_index:start_index + buffer_send.shape[0], ...]
+                            if part is None:
+                                source_indices = (slice(start_index, start_index + buffer_send.shape[0]), ...)
+                            else:
+                                source_indices = (slice(start_index, start_index + buffer_send.shape[0]),) + part
+                            buffer_send = np.require(self._variables[name][source_indices], requirements="C")
                             requests_send = self.comm_mpi4py.Isend(buffer_send, dest=dest, tag=name_tag)
                         else:
                             requests_send = None
@@ -828,8 +860,15 @@ class UnstructuredGrid:
                 # wait for all and then return the result
                 self.comm.barrier()
             else:
-                result_array = self._variables[name]
+                if part is None:
+                    result_array[:] = self._variables[name]
+                else:
+                    result_array[:] = self._variables[name][(slice(None),) + part]
         else:
+            # partial gathering is not supported for PETSc arrays for now
+            if part is not None:
+                raise NotImplementedError("gatherData: partial download are not implemented for PETSc arrays!")
+
             # with more than one processor, we need to collect the data from all the processors.
             # Otherwise, we just read it from the local copy of the vector
             if isGt1(self.comm):
