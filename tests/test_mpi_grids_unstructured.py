@@ -311,3 +311,23 @@ def test_gather(grid_with_overlap: UnstructuredGrid, comm):
         np.testing.assert_array_equal(noiseNd, gathered2)
     else:
         assert gathered2.size == 0
+
+
+def test_scatter_and_gather_partial(grid_with_overlap: UnstructuredGrid, comm):
+    """
+    Test the part argument of the gather and scatter functions
+    """
+    # create a 3d-Variable with random noise
+    noise = np.require(np.random.rand(grid_with_overlap.ncells, 3, 4), dtype=PETSc.RealType)
+
+    # upload it at once as reference
+    grid_with_overlap.addVariable("sg1", values=noise, update_ghost=True)
+
+    # add the same variable another time. This time, it all be uploaded piecewise
+    grid_with_overlap.addVariable("sg2", shape=noise.shape)
+    for i in range(3):
+        grid_with_overlap.scatterData("sg2", values=noise[:, i, ...], part=(i, ...))
+    grid_with_overlap.updateGhost("sg2")
+
+    # compare both field
+    np.testing.assert_array_equal(grid_with_overlap.getLocalArray("sg1"), grid_with_overlap.getLocalArray("sg2"))

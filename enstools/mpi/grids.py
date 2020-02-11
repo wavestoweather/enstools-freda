@@ -588,7 +588,7 @@ class UnstructuredGrid:
                     self._scatter_to_zero_is[dof].destroy()
                     del self._scatter_to_zero_is[dof]
 
-    def scatterData(self, name: str, values: np.ndarray, source: int = 0, update_ghost: bool = False, dof=None):
+    def scatterData(self, name: str, values: np.ndarray, source: int = 0, update_ghost: bool = False, dof=None, part: Tuple = None):
         """
 
         Parameters
@@ -604,11 +604,21 @@ class UnstructuredGrid:
 
         update_ghost: bool
                 if True, then updateGhost is called to initialize ghost cells on neighbour processors.
+
+        part: tuple
+                Tuple of slices, indices, and Ellipsis objects. If use, only a part of the array is transmitted. This
+                tuple only contains the dimensions starting from 1. The first dimension is always fixed. For an array
+                with the global shape (ncells, 2, 3) the following part could be used: (1, ...). That would assign
+                values to (:, 1, :).
         """
         log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, True, self.comm)
         # check the variable type. PETSc and numpy are not handled in the same way.
         if isinstance(self._variables[name], np.ndarray):
             if isGt1(self.comm):
+                # communicate the part variable if given on the source
+                if part is not None:
+                    part = self.comm_mpi4py.bcast(part, root=source)
+
                 # make sure, that the datatype is correct
                 if values.dtype != self._variables[name].dtype:
                     raise ValueError("scatterData: values have the type {values.dtype.char} but should have {self.variables[name].dtype.char}")
@@ -623,9 +633,13 @@ class UnstructuredGrid:
                     # the data is send from the origin to all processes. at first, receivers on all processes
                     # are started. The data is written to the existing variable arrays directly
                     if self.mpi_rank != source:
-                        owned_shape = list(self._variables[name].shape)
-                        owned_shape[0] = max(0, min(self.owned_sizes[self.mpi_rank] - start_index, max_indices_in_buffer))
-                        owned_shape = tuple(owned_shape)
+                        if part is None:
+                            owned_shape = self._variables[name].shape
+                        else:
+                            owned_shape = self._variables[name][(slice(0, self.ncells),) + part].shape
+                        owned_shape = (max(0,
+                                           min(self.owned_sizes[self.mpi_rank] - start_index, max_indices_in_buffer)),
+                                       ) + owned_shape[1:]
                         # start receiver only if something to send remains
                         if owned_shape[0] > 0:
                             # a new buffer is created only if the size of the buffer has to change
@@ -643,9 +657,11 @@ class UnstructuredGrid:
                             owned_end = owned_start + self.owned_sizes[rank]
                             buffer_start = owned_start + start_index
                             buffer_end = min(buffer_start + max_indices_in_buffer, owned_end)
-                            buffer_shape = list(self._variables[name].shape)
-                            buffer_shape[0] = max(0, buffer_end - buffer_start)
-                            buffer_shape = tuple(buffer_shape)
+                            if part is None:
+                                buffer_shape = self._variables[name].shape
+                            else:
+                                buffer_shape = self._variables[name][(slice(0, self.ncells),) + part].shape
+                            buffer_shape = (max(0, buffer_end - buffer_start),) + buffer_shape[1:]
                             if buffer_shape[0] > 0:
                                 if rank != source:
                                     if (rank in buffers_send and buffers_send[rank].shape != buffer_shape) or rank not in buffers_send:
@@ -653,7 +669,11 @@ class UnstructuredGrid:
                                     buffers_send[rank][:] = values[self._permutation_indices[buffer_start:buffer_end], ...]
                                     requests_send[rank] = self.comm_mpi4py.Isend(buffers_send[rank], dest=rank, tag=name_tag)
                                 else:
-                                    self._variables[name][start_index:start_index + buffer_end - buffer_start, ...] = values[self._permutation_indices[buffer_start:buffer_end, ...]]
+                                    if part is None:
+                                        dest_indices = (slice(start_index,start_index + buffer_end - buffer_start), ...)
+                                    else:
+                                        dest_indices = (slice(start_index, start_index + buffer_end - buffer_start),) + part
+                                    self._variables[name][dest_indices] = values[self._permutation_indices[buffer_start:buffer_end], ...]
                             else:
                                 if rank in buffers_send:
                                     del buffers_send[rank]
@@ -666,14 +686,26 @@ class UnstructuredGrid:
                     # wait for the local receiver to finish
                     if self.mpi_rank != source and requests_resv is not None:
                         requests_resv.wait()
-                        self._variables[name][start_index:start_index + buffer_recv.shape[0], ...] = buffer_recv
+                        if part is None:
+                            dest_indices = (slice(start_index, start_index + buffer_recv.shape[0]), ...)
+                        else:
+                            dest_indices = (slice(start_index, start_index + buffer_recv.shape[0]),) + part
+                        self._variables[name][dest_indices] = buffer_recv
                 # also initialize ghost values?
                 self.comm.barrier()
                 if update_ghost:
                     self.updateGhost(name, direction="O2G")
             else:
-                self._variables[name][:] = values
+                if part is None:
+                    dest_indices = (slice(0, self.ncells), ...)
+                else:
+                    dest_indices = (slice(0, self.ncells),) + part
+                self._variables[name][dest_indices] = values
         else:
+            # we do not support partial uploads here
+            if part is not None:
+                raise NotImplementedError("scatterData: partial uploads are not implemented for PETSc arrays!")
+
             # make sure we have data continuous in memory
             if values is not None:
                 values = np.require(values, requirements="C")
