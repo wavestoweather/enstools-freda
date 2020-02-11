@@ -182,6 +182,10 @@ class UnstructuredGrid:
 
             # set limit for transfer buffers. 128MB
             self.buffer_size_limit = 1048576 * 128
+        else:
+            # without distribution, the first process owns the complete grid.
+            self.total_sizes = np.asarray([self.ncells], dtype=PETSc.IntType)
+            self.owned_sizes = np.asarray([self.ncells], dtype=PETSc.IntType)
 
         log_and_time("distributing the DMPlex on all processors", logging.INFO, False, self.comm)
         log_and_time("creating and distributing the PETSc grid", logging.INFO, False, self.comm)
