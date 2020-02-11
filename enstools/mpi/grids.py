@@ -64,39 +64,39 @@ class UnstructuredGrid:
 
         # create the grid object
         log_and_time("constructing the global DMPLex structure", logging.INFO, True, self.comm)
-        self.__plex = PETSc.DMPlex().createFromCellList(2, cells, coords, comm=self.comm)
+        self._plex = PETSc.DMPlex().createFromCellList(2, cells, coords, comm=self.comm)
         # create a copy of the plex that is not distributed. We use that later to construct sections for distributions.
         if isGt1(comm):
-            self.__plex_non_distributed = self.__plex.clone()
-            self.__plex_non_distributed.setNumFields(1)
+            self._plex_non_distributed = self._plex.clone()
+            self._plex_non_distributed.setNumFields(1)
         else:
-            self.__plex_non_distributed = self.__plex
-        self.__plex.setNumFields(1)
+            self._plex_non_distributed = self._plex
+        self._plex.setNumFields(1)
         log_and_time("constructing the global DMPLex structure", logging.INFO, False, self.comm)
 
         # create a section with all grid points on the first processor
         log_and_time("distributing the DMPlex on all processors", logging.INFO, True, self.comm)
-        self.__sections_on_zero = {}
-        self.__sections_distributed = {}
-        self.__scatter_to_zero = {}
-        self.__scatter_to_zero_is = {}
-        self.__temporal_vectors_on_zero = {}
-        self.__temporal_vectors_local = {}
-        self.__temporal_vectors_global = {}
-        self.__variables_info: Dict[str, VariableInfo] = {}
-        self.__variables = {}
+        self._sections_on_zero = {}
+        self._sections_distributed = {}
+        self._scatter_to_zero = {}
+        self._scatter_to_zero_is = {}
+        self._temporal_vectors_on_zero = {}
+        self._temporal_vectors_local = {}
+        self._temporal_vectors_global = {}
+        self._variables_info: Dict[str, VariableInfo] = {}
+        self._variables = {}
         # create default section with dof=1 on rank=0
-        self.__createNonDistributedSection(dof=1)
-        self.__plex.setSection(self.__sections_on_zero[1])
+        self._createNonDistributedSection(dof=1)
+        self._plex.setSection(self._sections_on_zero[1])
 
         # distribute over all processes
         if isGt1(comm):
             log_and_time("running partitioner", logging.INFO, True, self.comm)
-            part = self.__plex.getPartitioner()
+            part = self._plex.getPartitioner()
             part.setType(part.Type.PARMETIS)
             part.setUp()
-            self.sf = self.__plex.distribute(overlap=overlap)
-            self.__createDistributedSection(dof=1)
+            self._sf = self._plex.distribute(overlap=overlap)
+            self._createDistributedSection(dof=1)
             log_and_time("running partitioner", logging.INFO, False, self.comm)
 
             # create scatter context for all ranks to rank zero
@@ -108,22 +108,22 @@ class UnstructuredGrid:
             # add global indices as new variable to the grid
             self.addVariablePETSc("global_indices", values=indices)
             # get the global form (no ghost points)  of the indices
-            self.__plex.localToGlobal(self.__variables["global_indices"], self.__temporal_vectors_global[1])
+            self._plex.localToGlobal(self._variables["global_indices"], self._temporal_vectors_global[1])
             # scatter this indices to process zero and and filter out ghost points
-            self.__scatter_to_zero[1].scatter(self.__temporal_vectors_global[1], self.__temporal_vectors_on_zero[1])
+            self._scatter_to_zero[1].scatter(self._temporal_vectors_global[1], self._temporal_vectors_on_zero[1])
             if onRank0(self.comm):
-                self.__permutation_indices = np.asarray(self.__temporal_vectors_on_zero[1].getArray(), dtype=PETSc.IntType)
+                self._permutation_indices = np.asarray(self._temporal_vectors_on_zero[1].getArray(), dtype=PETSc.IntType)
             else:
-                self.__permutation_indices = np.empty(0, dtype=PETSc.IntType)
-            self.__permutation_indices = self.comm_mpi4py.bcast(self.__permutation_indices)
+                self._permutation_indices = np.empty(0, dtype=PETSc.IntType)
+            self._permutation_indices = self.comm_mpi4py.bcast(self._permutation_indices)
 
             # store owner and owner indices of ghost regions on every processor and include an invers mapping.
             # -----------------------------------------------------------------------------------------------
             # at first, get the local owned sizes everywhere
             self.owned_sizes = np.zeros(self.mpi_size, dtype=PETSc.IntType)
             self.total_sizes = np.zeros(self.mpi_size, dtype=PETSc.IntType)
-            local_owned_size = np.asarray(self.__temporal_vectors_global[1].getSizes()[0], dtype=PETSc.IntType)
-            local_total_size = np.asarray(self.__temporal_vectors_local[1].getSizes()[0], dtype=PETSc.IntType)
+            local_owned_size = np.asarray(self._temporal_vectors_global[1].getSizes()[0], dtype=PETSc.IntType)
+            local_total_size = np.asarray(self._temporal_vectors_local[1].getSizes()[0], dtype=PETSc.IntType)
             self.comm_mpi4py.Allgather(local_owned_size, self.owned_sizes)
             self.comm_mpi4py.Allgather(local_total_size, self.total_sizes)
 
@@ -131,7 +131,7 @@ class UnstructuredGrid:
             self.addVariablePETSc("owner")
             self.getLocalArray("owner")[:] = 0
             self.getLocalArray("owner")[:self.owned_sizes[self.mpi_rank]] = self.mpi_rank
-            self.__variables["owner"].assemble()
+            self._variables["owner"].assemble()
             owner = self.gatherData("owner", insert_mode=PETSc.InsertMode.ADD)
             self.scatterData("owner", owner)
 
@@ -140,24 +140,24 @@ class UnstructuredGrid:
             self.getLocalArray("owner_indices")[:] = 0
             self.getLocalArray("owner_indices")[:self.owned_sizes[self.mpi_rank]] = \
                 np.arange(self.owned_sizes[self.mpi_rank], dtype=PETSc.RealType)
-            self.__variables["owner_indices"].assemble()
+            self._variables["owner_indices"].assemble()
             owner_indices = self.gatherData("owner_indices", insert_mode=PETSc.InsertMode.ADD)
             self.scatterData("owner_indices", owner_indices)
 
             # a forward and backward mapping of all ghost points
             self.addVariablePETSc("ghost_indices")
             self.getLocalArray("ghost_indices")[:] = 0
-            self.ghost_mapping: Dict[int, GhostMapping] = {}
+            self._ghost_mapping: Dict[int, GhostMapping] = {}
             # array with all indices that have some ghost a ghost assigned to it.
-            self.ghost_mapping_all_owned_with_remote_ghost = np.empty(0, dtype=PETSc.IntType)
+            self._ghost_mapping_all_owned_with_remote_ghost = np.empty(0, dtype=PETSc.IntType)
             for one_rank in range(self.mpi_size):
                 ghost_indices_local = self.getLocalArray("ghost_indices")
                 if one_rank == self.mpi_rank:
                     ghost_indices_local[self.owned_sizes[self.mpi_rank]:] = \
-                        np.arange(self.owned_sizes[self.mpi_rank], self.__temporal_vectors_local[1].getSizes()[0], dtype=PETSc.RealType)
+                        np.arange(self.owned_sizes[self.mpi_rank], self._temporal_vectors_local[1].getSizes()[0], dtype=PETSc.RealType)
                 else:
                     ghost_indices_local[:] = 0
-                self.__variables["ghost_indices"].assemble()
+                self._variables["ghost_indices"].assemble()
                 ghost_indices = self.gatherData("ghost_indices", insert_mode=PETSc.InsertMode.ADD)
                 self.scatterData("ghost_indices", ghost_indices)
                 ghost_indices_local = self.getLocalArray("ghost_indices")
@@ -167,7 +167,7 @@ class UnstructuredGrid:
                 owned_by_remote_indices = self.getLocalArray("owner_indices")[owned_by_remote_rank]
                 if one_rank != self.mpi_rank and (owned_by_remote_indices.size > 0 or indices_with_ghosts.size > 0):
                     # create mapping for this rank
-                    self.ghost_mapping[one_rank] = GhostMapping(
+                    self._ghost_mapping[one_rank] = GhostMapping(
                         rank=one_rank,
                         local_indices_that_are_remote_ghost=indices_with_ghosts,
                         remote_indices_of_ghosts=ghost_indices_local[indices_with_ghosts],
@@ -175,9 +175,9 @@ class UnstructuredGrid:
                         local_indices_of_ghosts=owned_by_remote_rank
                     )
                     # add points to mapping for all ranks
-                    self.ghost_mapping_all_owned_with_remote_ghost = np.append(self.ghost_mapping_all_owned_with_remote_ghost, indices_with_ghosts)
-            self.ghost_mapping_all_owned_with_remote_ghost.sort()
-            self.ghost_mapping_all_owned_with_remote_ghost = np.unique(self.ghost_mapping_all_owned_with_remote_ghost)
+                    self._ghost_mapping_all_owned_with_remote_ghost = np.append(self._ghost_mapping_all_owned_with_remote_ghost, indices_with_ghosts)
+            self._ghost_mapping_all_owned_with_remote_ghost.sort()
+            self._ghost_mapping_all_owned_with_remote_ghost = np.unique(self._ghost_mapping_all_owned_with_remote_ghost)
             self.removeVariable("ghost_indices")
 
             # set limit for transfer buffers. 128MB
@@ -212,7 +212,7 @@ class UnstructuredGrid:
         log_and_time("distributing support information", logging.INFO, False, self.comm)
         log_and_time("UnstructuredGrid.__init__()", logging.INFO, False, self.comm)
 
-    def __createNonDistributedSection(self, dof):
+    def _createNonDistributedSection(self, dof):
         """
         create a section on the non-distributed mesh for usage in field distribution.
 
@@ -226,22 +226,22 @@ class UnstructuredGrid:
         new section object, The result is also stored in self.sections_on_zero.
         """
         # create the section object
-        new_sec = self.__plex_non_distributed.createSection(numComp=1, numDof=[0, 0, dof])
+        new_sec = self._plex_non_distributed.createSection(numComp=1, numDof=[0, 0, dof])
         new_sec.setFieldName(0, "cells")
         new_sec.setUp()
-        self.__sections_on_zero[dof] = new_sec
+        self._sections_on_zero[dof] = new_sec
 
         # create a temporal vector using this section
-        self.__plex_non_distributed.setSection(new_sec)
-        self.__temporal_vectors_on_zero[dof] = self.__plex_non_distributed.createGlobalVector()
-        self.__temporal_vectors_on_zero[dof].zeroEntries()
-        self.__temporal_vectors_on_zero[dof].assemble()
+        self._plex_non_distributed.setSection(new_sec)
+        self._temporal_vectors_on_zero[dof] = self._plex_non_distributed.createGlobalVector()
+        self._temporal_vectors_on_zero[dof].zeroEntries()
+        self._temporal_vectors_on_zero[dof].assemble()
 
         # restore default section
-        self.__plex_non_distributed.setSection(self.__sections_on_zero[1])
+        self._plex_non_distributed.setSection(self._sections_on_zero[1])
         return new_sec
 
-    def __createDistributedSection(self, dof):
+    def _createDistributedSection(self, dof):
         """
         create a distributed section for the given number of DoF.
 
@@ -254,27 +254,27 @@ class UnstructuredGrid:
         new section object. The result is also added to self.sections_distributed
         """
         # create a new distributed section based on the non-distributed section on rank zero.
-        if dof in self.__sections_on_zero:
+        if dof in self._sections_on_zero:
             # create the distributed section by distributing an empty array
-            self.__sections_distributed[dof], self.__temporal_vectors_local[dof] = \
-                self.__plex.distributeField(self.sf, self.__sections_on_zero[dof],
-                                            self.__temporal_vectors_on_zero[dof])
+            self._sections_distributed[dof], self._temporal_vectors_local[dof] = \
+                self._plex.distributeField(self._sf, self._sections_on_zero[dof],
+                                           self._temporal_vectors_on_zero[dof])
             # set the new section as default and create a global vector from it.
-            self.__plex.setSection(self.__sections_distributed[dof])
-            self.__temporal_vectors_global[dof] = self.__plex.createGlobalVec()
+            self._plex.setSection(self._sections_distributed[dof])
+            self._temporal_vectors_global[dof] = self._plex.createGlobalVec()
             # restore default section
-            self.__plex.setSection(self.__sections_distributed[1])
+            self._plex.setSection(self._sections_distributed[1])
         else:
             raise ValueError("__createDistributedSection: not yet supported if no non-distributed section has been created before.")
 
         # create a scatter context for this vector size
-        if not dof in self.__scatter_to_zero:
+        if not dof in self._scatter_to_zero:
             # create the scatter context
-            self.__scatter_to_zero[dof], temp = PETSc.Scatter().toZero(self.__temporal_vectors_global[dof])
+            self._scatter_to_zero[dof], temp = PETSc.Scatter().toZero(self._temporal_vectors_global[dof])
             temp.destroy()
-        return self.__sections_distributed[dof]
+        return self._sections_distributed[dof]
 
-    def __getPermutationIS(self, dof):
+    def _getPermutationIS(self, dof):
         """
         create an index-set for permutation after gathering data on rank 0.
 
@@ -290,22 +290,22 @@ class UnstructuredGrid:
         # on rank 0 create a permutation index
         if onRank0(self.comm):
             # only create the index once.
-            if dof in self.__scatter_to_zero_is:
-                return self.__scatter_to_zero_is[dof]
+            if dof in self._scatter_to_zero_is:
+                return self._scatter_to_zero_is[dof]
             # for one DoF, the index is created from the 1d-permutation_index
             if dof == 1:
-                indices = self.__permutation_indices
+                indices = self._permutation_indices
             else:
                 indices = np.empty(self.ncells * dof, dtype=PETSc.IntType)
-                for index in range(self.__permutation_indices.size):
+                for index in range(self._permutation_indices.size):
                     for d in range(dof):
-                        indices[index*dof+d] = self.__permutation_indices[index] * dof + d
-            self.__scatter_to_zero_is[dof] = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
-            return self.__scatter_to_zero_is[dof]
+                        indices[index*dof+d] = self._permutation_indices[index] * dof + d
+            self._scatter_to_zero_is[dof] = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
+            return self._scatter_to_zero_is[dof]
         else:
             return None
 
-    def __getDoFforArray(self, array=None, dof=None):
+    def _getDoFforArray(self, array=None, dof=None):
         """
         use the shape of an array to the the degrees of freedom. The shape of the array of only checked on rank zero
         and then communicated to all other ranks
@@ -336,7 +336,7 @@ class UnstructuredGrid:
             dof = 1
         return dof
 
-    def __max_indices_to_buffer(self, name: str, buffers_per_rank: int = 1):
+    def _max_indices_to_buffer(self, name: str, buffers_per_rank: int = 1):
         """
         calculate the maximal number of indices that should be buffered. Call this function on every rank!
 
@@ -356,14 +356,14 @@ class UnstructuredGrid:
         # calculate the maximal number of indices to transfer at once taking the maximal buffer size into account.
         if onRank0(self.comm):
             # get datatype and shape of the array
-            if isinstance(self.__variables[name], np.ndarray):
-                dtype = self.__variables[name].dtype
-                shape = list(self.__variables[name].shape)
+            if isinstance(self._variables[name], np.ndarray):
+                dtype = self._variables[name].dtype
+                shape = list(self._variables[name].shape)
                 shape[0] = self.ncells
                 shape = tuple(shape)
             else:
                 dtype = PETSc.RealType
-                shape = self.__variables_info[name].shape_on_zero
+                shape = self._variables_info[name].shape_on_zero
 
             # calculate the maximal number of elements to buffer
             max_indices_in_buffer = int(
@@ -436,14 +436,14 @@ class UnstructuredGrid:
         local_shape[0] = self.total_sizes[self.mpi_rank]
 
         # create the local variable
-        self.__variables[name] = np.empty(tuple(local_shape), dtype=dtype)
+        self._variables[name] = np.empty(tuple(local_shape), dtype=dtype)
 
         # add data
         if values is not None:
             if isGt1(self.comm):
                 self.scatterData(name, values, source=source, update_ghost=update_ghost)
             else:
-                self.__variables[name][:] = values
+                self._variables[name][:] = values
 
     def addVariablePETSc(self, name, values=None, dof=None):
         """
@@ -462,35 +462,35 @@ class UnstructuredGrid:
                 number of values stored in one point.
         """
         # get the dof from the values argument
-        dof = self.__getDoFforArray(values, dof)
+        dof = self._getDoFforArray(values, dof)
 
         # the first dimension must be the number of cells
         if onRank0(self.comm) and values is not None and not values.shape[0] == self.ncells:
             raise ValueError(f"Variable {name}: shape has not the number of grid cells in the first dimension: {values.shape}")
 
         # when values are provided, a corresponding section if created
-        if values is not None and not dof in self.__sections_on_zero:
-            self.__createNonDistributedSection(dof)
+        if values is not None and not dof in self._sections_on_zero:
+            self._createNonDistributedSection(dof)
             if isGt1(self.comm):
-                self.__createDistributedSection(dof)
+                self._createDistributedSection(dof)
 
         # create a new variable with the appropriate section
         if isGt1(self.comm):
-            if dof in self.__sections_distributed:
-                self.__plex.setSection(self.__sections_distributed[dof])
-                self.__variables[name] = self.__plex.createLocalVec()
+            if dof in self._sections_distributed:
+                self._plex.setSection(self._sections_distributed[dof])
+                self._variables[name] = self._plex.createLocalVec()
                 # restore default section
                 if dof != 1:
-                    self.__plex.setSection(self.__sections_distributed[1])
+                    self._plex.setSection(self._sections_distributed[1])
             else:
                 raise ValueError("variable without distributed section added!")
         else:
-            if dof in self.__sections_on_zero:
-                self.__plex.setSection(self.__sections_on_zero[dof])
-                self.__variables[name] = self.__plex.createLocalVec()
+            if dof in self._sections_on_zero:
+                self._plex.setSection(self._sections_on_zero[dof])
+                self._variables[name] = self._plex.createLocalVec()
                 # restore default section
                 if dof != 1:
-                    self.__plex.setSection(self.__sections_on_zero[1])
+                    self._plex.setSection(self._sections_on_zero[1])
             else:
                 raise ValueError("variable without non-distributed section added!")
 
@@ -499,7 +499,7 @@ class UnstructuredGrid:
         if values is not None:
             # use the real shape of the given array
             if isGt1(self.comm):
-                partition_sizes = self.__temporal_vectors_local[1].getSizes()[0], self.__temporal_vectors_global[1].getSizes()[0]
+                partition_sizes = self._temporal_vectors_local[1].getSizes()[0], self._temporal_vectors_global[1].getSizes()[0]
                 shape_on_zero = self.comm_mpi4py.bcast(values.shape)
             else:
                 partition_sizes = self.ncells, self.ncells
@@ -515,14 +515,14 @@ class UnstructuredGrid:
             else:
                 shape_on_zero = (self.ncells,)
             if isGt1(self.comm):
-                partition_sizes = self.__temporal_vectors_local[1].getSizes()[0], self.__temporal_vectors_global[1].getSizes()[0]
+                partition_sizes = self._temporal_vectors_local[1].getSizes()[0], self._temporal_vectors_global[1].getSizes()[0]
             else:
                 partition_sizes = self.ncells, self.ncells
             if self.mpi_rank > 0:
                 shape_on_zero = list(shape_on_zero)
                 shape_on_zero[0] = 0
                 shape_on_zero = tuple(shape_on_zero)
-        self.__variables_info[name] = VariableInfo(dof=dof, shape_on_zero=shape_on_zero, partition_sizes=partition_sizes)
+        self._variables_info[name] = VariableInfo(dof=dof, shape_on_zero=shape_on_zero, partition_sizes=partition_sizes)
 
         # if we have already values, scatter them to all processes
         if values is not None:
@@ -537,56 +537,56 @@ class UnstructuredGrid:
         name: str
                 name of the variable
         """
-        self.__variables[name].assemble()
+        self._variables[name].assemble()
 
     def removeVariable(self, name):
         """
         remove a variable and related support structures from the grid.
         """
         # check the type of the variable. For numpy-array, no support information are stored.
-        if isinstance(self.__variables, np.ndarray):
-            del self.__variables[name]
+        if isinstance(self._variables, np.ndarray):
+            del self._variables[name]
             return
 
         # delete the actual vector object.
-        self.__variables[name].destroy()
-        del self.__variables[name]
+        self._variables[name].destroy()
+        del self._variables[name]
 
         # check if the DoF related structures are still required.
-        info = self.__variables_info[name]
-        del self.__variables_info[name]
+        info = self._variables_info[name]
+        del self._variables_info[name]
         dof = info.dof
         if dof != 1:
             # find out if other variables with the same DoF exist.
             others_exist = False
-            for other in self.__variables_info:
-                if self.__variables_info[other].dof == dof:
+            for other in self._variables_info:
+                if self._variables_info[other].dof == dof:
                     others_exist = True
                     break
 
             # without others, remove support vectors, etc
             if not others_exist:
-                if dof in self.__temporal_vectors_on_zero:
-                    self.__temporal_vectors_on_zero[dof].destroy()
-                    del self.__temporal_vectors_on_zero[dof]
-                if dof in self.__temporal_vectors_global:
-                    self.__temporal_vectors_global[dof].destroy()
-                    del self.__temporal_vectors_global[dof]
-                if dof in self.__temporal_vectors_local:
-                    self.__temporal_vectors_local[dof].destroy()
-                    del self.__temporal_vectors_local[dof]
-                if dof in self.__sections_on_zero:
-                    self.__sections_on_zero[dof].destroy()
-                    del self.__sections_on_zero[dof]
-                if dof in self.__sections_distributed:
-                    self.__sections_distributed[dof].destroy()
-                    del self.__sections_distributed[dof]
-                if dof in self.__scatter_to_zero:
-                    self.__scatter_to_zero[dof].destroy()
-                    del self.__scatter_to_zero[dof]
-                if dof in self.__scatter_to_zero_is:
-                    self.__scatter_to_zero_is[dof].destroy()
-                    del self.__scatter_to_zero_is[dof]
+                if dof in self._temporal_vectors_on_zero:
+                    self._temporal_vectors_on_zero[dof].destroy()
+                    del self._temporal_vectors_on_zero[dof]
+                if dof in self._temporal_vectors_global:
+                    self._temporal_vectors_global[dof].destroy()
+                    del self._temporal_vectors_global[dof]
+                if dof in self._temporal_vectors_local:
+                    self._temporal_vectors_local[dof].destroy()
+                    del self._temporal_vectors_local[dof]
+                if dof in self._sections_on_zero:
+                    self._sections_on_zero[dof].destroy()
+                    del self._sections_on_zero[dof]
+                if dof in self._sections_distributed:
+                    self._sections_distributed[dof].destroy()
+                    del self._sections_distributed[dof]
+                if dof in self._scatter_to_zero:
+                    self._scatter_to_zero[dof].destroy()
+                    del self._scatter_to_zero[dof]
+                if dof in self._scatter_to_zero_is:
+                    self._scatter_to_zero_is[dof].destroy()
+                    del self._scatter_to_zero_is[dof]
 
     def scatterData(self, name: str, values: np.ndarray, source: int = 0, update_ghost: bool = False, dof=None):
         """
@@ -607,29 +607,30 @@ class UnstructuredGrid:
         """
         log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, True, self.comm)
         # check the variable type. PETSc and numpy are not handled in the same way.
-        if isinstance(self.__variables[name], np.ndarray):
+        if isinstance(self._variables[name], np.ndarray):
             if isGt1(self.comm):
                 # make sure, that the datatype is correct
-                if values.dtype != self.__variables[name].dtype:
+                if values.dtype != self._variables[name].dtype:
                     raise ValueError("scatterData: values have the type {values.dtype.char} but should have {self.variables[name].dtype.char}")
 
                 # limit the indices transmitted at once
-                max_indices_in_buffer = self.__max_indices_to_buffer(name, buffers_per_rank=self.mpi_size)
+                max_indices_in_buffer = self._max_indices_to_buffer(name, buffers_per_rank=self.mpi_size)
                 buffer_recv = None
+                requests_resv = None
                 for start_index in range(0, self.owned_sizes.max(), max_indices_in_buffer):
                     # use a checksum of the name as tag in MPI messages
                     name_tag = zlib.crc32(f"scatterData{name}{start_index}".encode()) // 2
                     # the data is send from the origin to all processes. at first, receivers on all processes
                     # are started. The data is written to the existing variable arrays directly
                     if self.mpi_rank != source:
-                        owned_shape = list(self.__variables[name].shape)
+                        owned_shape = list(self._variables[name].shape)
                         owned_shape[0] = max(0, min(self.owned_sizes[self.mpi_rank] - start_index, max_indices_in_buffer))
                         owned_shape = tuple(owned_shape)
                         # start receiver only if something to send remains
                         if owned_shape[0] > 0:
                             # a new buffer is created only if the size of the buffer has to change
                             if buffer_recv is None or buffer_recv.shape != owned_shape:
-                                buffer_recv = np.empty(owned_shape, dtype=self.__variables[name].dtype)
+                                buffer_recv = np.empty(owned_shape, dtype=self._variables[name].dtype)
                             requests_resv = self.comm_mpi4py.Irecv(buffer_recv, source=source, tag=name_tag)
                         else:
                             requests_resv = None
@@ -642,17 +643,17 @@ class UnstructuredGrid:
                             owned_end = owned_start + self.owned_sizes[rank]
                             buffer_start = owned_start + start_index
                             buffer_end = min(buffer_start + max_indices_in_buffer, owned_end)
-                            buffer_shape = list(self.__variables[name].shape)
+                            buffer_shape = list(self._variables[name].shape)
                             buffer_shape[0] = max(0, buffer_end - buffer_start)
                             buffer_shape = tuple(buffer_shape)
                             if buffer_shape[0] > 0:
                                 if rank != source:
                                     if (rank in buffers_send and buffers_send[rank].shape != buffer_shape) or rank not in buffers_send:
-                                        buffers_send[rank] = np.empty(buffer_shape, dtype=self.__variables[name].dtype)
-                                    buffers_send[rank][:] = values[self.__permutation_indices[buffer_start:buffer_end], ...]
+                                        buffers_send[rank] = np.empty(buffer_shape, dtype=self._variables[name].dtype)
+                                    buffers_send[rank][:] = values[self._permutation_indices[buffer_start:buffer_end], ...]
                                     requests_send[rank] = self.comm_mpi4py.Isend(buffers_send[rank], dest=rank, tag=name_tag)
                                 else:
-                                    self.__variables[name][start_index:start_index + buffer_end - buffer_start, ...] = values[self.__permutation_indices[buffer_start:buffer_end, ...]]
+                                    self._variables[name][start_index:start_index + buffer_end - buffer_start, ...] = values[self._permutation_indices[buffer_start:buffer_end, ...]]
                             else:
                                 if rank in buffers_send:
                                     del buffers_send[rank]
@@ -665,13 +666,13 @@ class UnstructuredGrid:
                     # wait for the local receiver to finish
                     if self.mpi_rank != source and requests_resv is not None:
                         requests_resv.wait()
-                        self.__variables[name][start_index:start_index + buffer_recv.shape[0], ...] = buffer_recv
+                        self._variables[name][start_index:start_index + buffer_recv.shape[0], ...] = buffer_recv
                 # also initialize ghost values?
                 self.comm.barrier()
                 if update_ghost:
                     self.updateGhost(name, direction="O2G")
             else:
-                self.__variables[name][:] = values
+                self._variables[name][:] = values
         else:
             # make sure we have data continuous in memory
             if values is not None:
@@ -679,25 +680,25 @@ class UnstructuredGrid:
             # with more than one processor, we need to distribute the data. Otherwise, we just store it locally
             if isGt1(self.comm):
                 # on rank 0 write the data into the total grid vector
-                dof = self.__getDoFforArray(values, dof)
+                dof = self._getDoFforArray(values, dof)
                 if onRank0(self.comm):
                     # make sure, the shape of the given array matches the expected shape stored as variable information
-                    if not values.shape == self.__variables_info[name].shape_on_zero:
-                        log_on_rank(f"scatterData: array with shape {self.__variables_info[name].shape_on_zero} expected, but {values.shape} given.", logging.ERROR, self.comm, self.mpi_rank)
+                    if not values.shape == self._variables_info[name].shape_on_zero:
+                        log_on_rank(f"scatterData: array with shape {self._variables_info[name].shape_on_zero} expected, but {values.shape} given.", logging.ERROR, self.comm, self.mpi_rank)
                         self.comm_mpi4py.Abort()
-                    self.__temporal_vectors_on_zero[dof].getArray()[:] = values.ravel()
-                self.__temporal_vectors_on_zero[dof].assemble()
+                    self._temporal_vectors_on_zero[dof].getArray()[:] = values.ravel()
+                self._temporal_vectors_on_zero[dof].assemble()
 
                 # distribute the values. Create a new local vector including ghost values for this purpose
-                _, self.__variables[name] = self.__plex.distributeField(sf=self.sf,
-                                                                        sec=self.__sections_on_zero[dof],
-                                                                        vec=self.__temporal_vectors_on_zero[dof],
-                                                                        newsec=self.__sections_distributed[dof])
+                _, self._variables[name] = self._plex.distributeField(sf=self._sf,
+                                                                      sec=self._sections_on_zero[dof],
+                                                                      vec=self._temporal_vectors_on_zero[dof],
+                                                                      newsec=self._sections_distributed[dof])
 
                 #self.plex.localToLocal(self.variables[name], self.variables[name])
                 #self.plex.localToGlobal(newvec, self.variables[name])
             else:
-                self.__variables[name].getArray()[:] = values.ravel()
+                self._variables[name].getArray()[:] = values.ravel()
         log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, False, self.comm)
 
     def gatherData(self, name: str, dest: int = 0, insert_mode=PETSc.InsertMode.INSERT) -> np.ndarray:
@@ -721,19 +722,19 @@ class UnstructuredGrid:
         result_array = None
 
         # distinguish between numpy and PETSc arrays
-        if isinstance(self.__variables[name], np.ndarray):
+        if isinstance(self._variables[name], np.ndarray):
             if isGt1(self.comm):
                 # create a result array that is large enough for the complete array
-                global_shape = list(self.__variables[name].shape)
+                global_shape = list(self._variables[name].shape)
                 global_shape[0] = self.ncells
                 global_shape = tuple(global_shape)
                 if self.mpi_rank == dest:
-                    result_array = np.empty(global_shape, dtype=self.__variables[name].dtype)
+                    result_array = np.empty(global_shape, dtype=self._variables[name].dtype)
                 else:
-                    result_array = np.empty(0, dtype=self.__variables[name].dtype)
+                    result_array = np.empty(0, dtype=self._variables[name].dtype)
 
                 # limit the indices transmitted at once
-                max_indices_in_buffer = self.__max_indices_to_buffer(name, buffers_per_rank=self.mpi_size)
+                max_indices_in_buffer = self._max_indices_to_buffer(name, buffers_per_rank=self.mpi_size)
                 buffer_send = None
                 for start_index in range(0, self.owned_sizes.max(), max_indices_in_buffer):
                     # use a checksum of the name as tag in MPI messages
@@ -749,17 +750,17 @@ class UnstructuredGrid:
                             owned_end = owned_start + self.owned_sizes[rank]
                             buffer_start = owned_start + start_index
                             buffer_end = min(buffer_start + max_indices_in_buffer, owned_end)
-                            buffer_shape = list(self.__variables[name].shape)
+                            buffer_shape = list(self._variables[name].shape)
                             buffer_shape[0] = max(0, buffer_end - buffer_start)
                             buffer_shape = tuple(buffer_shape)
                             if buffer_shape[0] > 0:
                                 if rank != dest:
                                     if (rank in buffers_recv and buffers_recv[rank].shape != buffer_shape) or rank not in buffers_recv:
-                                        buffers_recv[rank] = np.empty(buffer_shape, dtype=self.__variables[name].dtype)
+                                        buffers_recv[rank] = np.empty(buffer_shape, dtype=self._variables[name].dtype)
                                     requests_recv[rank] = self.comm_mpi4py.Irecv(buffers_recv[rank], source=rank, tag=name_tag)
                                     buffers_recv_range[rank] = (buffer_start, buffer_end)
                                 else:
-                                    result_array[self.__permutation_indices[buffer_start:buffer_end, ...]] = self.__variables[name][start_index:start_index + buffer_end - buffer_start, ...]
+                                    result_array[self._permutation_indices[buffer_start:buffer_end, ...]] = self._variables[name][start_index:start_index + buffer_end - buffer_start, ...]
                             else:
                                 if rank in buffers_recv:
                                     del buffers_recv[rank]
@@ -768,15 +769,15 @@ class UnstructuredGrid:
 
                     # all processors start one sender
                     if self.mpi_rank != dest:
-                        owned_shape = list(self.__variables[name].shape)
+                        owned_shape = list(self._variables[name].shape)
                         owned_shape[0] = max(0, min(self.owned_sizes[self.mpi_rank] - start_index, max_indices_in_buffer))
                         owned_shape = tuple(owned_shape)
                         # start receiver only if something to send remains
                         if owned_shape[0] > 0:
                             # a new buffer is created only if the size of the buffer has to change
                             if buffer_send is None or buffer_send.shape != owned_shape:
-                                buffer_send = np.empty(owned_shape, dtype=self.__variables[name].dtype)
-                            buffer_send = self.__variables[name][start_index:start_index + buffer_send.shape[0], ...]
+                                buffer_send = np.empty(owned_shape, dtype=self._variables[name].dtype)
+                            buffer_send = self._variables[name][start_index:start_index + buffer_send.shape[0], ...]
                             requests_send = self.comm_mpi4py.Isend(buffer_send, dest=dest, tag=name_tag)
                         else:
                             requests_send = None
@@ -787,7 +788,7 @@ class UnstructuredGrid:
                                 requests_recv[rank].wait()
                                 buffer_start = buffers_recv_range[rank][0]
                                 buffer_end = buffers_recv_range[rank][1]
-                                result_array[self.__permutation_indices[buffer_start:buffer_end, ...]] = buffers_recv[rank]
+                                result_array[self._permutation_indices[buffer_start:buffer_end, ...]] = buffers_recv[rank]
 
                     # wait for the local sender to finish
                     if self.mpi_rank != dest and requests_send is not None:
@@ -795,42 +796,42 @@ class UnstructuredGrid:
                 # wait for all and then return the result
                 self.comm.barrier()
             else:
-                result_array = self.__variables[name]
+                result_array = self._variables[name]
         else:
             # with more than one processor, we need to collect the data from all the processors.
             # Otherwise, we just read it from the local copy of the vector
             if isGt1(self.comm):
                 # switch the plex section to the correct dof
-                dof = self.__variables_info[name].dof
-                self.__plex.setSection(self.__sections_distributed[dof])
+                dof = self._variables_info[name].dof
+                self._plex.setSection(self._sections_distributed[dof])
 
                 # is the insert modes is anything other then INSERT, set the temporal vector to zero before the transfer
                 # The mode INSERT will overwrite the values anyway.
                 if insert_mode != PETSc.InsertMode.INSERT:
-                    self.__temporal_vectors_global[dof].zeroEntries()
-                    self.__temporal_vectors_global[dof].assemble()
+                    self._temporal_vectors_global[dof].zeroEntries()
+                    self._temporal_vectors_global[dof].assemble()
                     # FIXME
                     assert dof == 1
 
                 # create a copy without ghost values and send all partitions to rank 0
-                self.__plex.localToGlobal(self.__variables[name], self.__temporal_vectors_global[dof], addv=insert_mode)
-                self.__scatter_to_zero[dof].scatter(self.__temporal_vectors_global[dof], self.__temporal_vectors_on_zero[dof])
+                self._plex.localToGlobal(self._variables[name], self._temporal_vectors_global[dof], addv=insert_mode)
+                self._scatter_to_zero[dof].scatter(self._temporal_vectors_global[dof], self._temporal_vectors_on_zero[dof])
 
                 # on rank zero correct the permutation of the vector
                 if onRank0(self.comm):
-                    self.__temporal_vectors_on_zero[dof].permute(self.__getPermutationIS(dof), True)
+                    self._temporal_vectors_on_zero[dof].permute(self._getPermutationIS(dof), True)
 
                 # we need to create a copy of the result as we are always using the same temporal vector for the transfer
-                result_array = self.__temporal_vectors_on_zero[dof].getArray().copy()
-                if self.__variables_info[name].shape_on_zero is not None and self.__variables_info[name].shape_on_zero != result_array.shape:
-                    result_array = np.require(result_array.reshape(self.__variables_info[name].shape_on_zero), requirements="C")
+                result_array = self._temporal_vectors_on_zero[dof].getArray().copy()
+                if self._variables_info[name].shape_on_zero is not None and self._variables_info[name].shape_on_zero != result_array.shape:
+                    result_array = np.require(result_array.reshape(self._variables_info[name].shape_on_zero), requirements="C")
 
                 # switch the plex section back to the default 1
-                self.__plex.setSection(self.__sections_distributed[1])
+                self._plex.setSection(self._sections_distributed[1])
             else:
-                result_array = self.__variables[name].getArray()
-                if self.__variables_info[name].shape_on_zero is not None and self.__variables_info[name].shape_on_zero != result_array.shape:
-                    result_array = np.require(result_array.reshape(self.__variables_info[name].shape_on_zero), requirements="C")
+                result_array = self._variables[name].getArray()
+                if self._variables_info[name].shape_on_zero is not None and self._variables_info[name].shape_on_zero != result_array.shape:
+                    result_array = np.require(result_array.reshape(self._variables_info[name].shape_on_zero), requirements="C")
 
         # log timing and return result
         log_and_time(f"UnstructuredGrid.gatherData({name})", logging.INFO, False, self.comm)
@@ -854,15 +855,15 @@ class UnstructuredGrid:
         if not isGt1(self.comm):
             return self.getLocalArray(name)
         # for multiple processes we have to use localToGlobal function
-        dof = self.__variables_info[name].dof
-        self.__plex.setSection(self.__sections_distributed[dof])
-        self.__plex.localToGlobal(self.__variables[name], self.__temporal_vectors_global[dof])
+        dof = self._variables_info[name].dof
+        self._plex.setSection(self._sections_distributed[dof])
+        self._plex.localToGlobal(self._variables[name], self._temporal_vectors_global[dof])
         if dof != 1:
-            self.__plex.setSection(self.__sections_distributed[1])
-        result_array = np.copy(self.__temporal_vectors_global[dof].getArray())
+            self._plex.setSection(self._sections_distributed[1])
+        result_array = np.copy(self._temporal_vectors_global[dof].getArray())
         # reshape the result is required
-        if self.__variables_info[name].shape_global is not None and self.__variables_info[name].shape_global != result_array.shape:
-            result_array = np.require(result_array.reshape(self.__variables_info[name].shape_global), requirements="C")
+        if self._variables_info[name].shape_global is not None and self._variables_info[name].shape_global != result_array.shape:
+            result_array = np.require(result_array.reshape(self._variables_info[name].shape_global), requirements="C")
         return result_array
 
     def getLocalArray(self, name: str):
@@ -879,13 +880,13 @@ class UnstructuredGrid:
         -------
         np.ndarray
         """
-        if isinstance(self.__variables[name], np.ndarray):
-            return self.__variables[name]
+        if isinstance(self._variables[name], np.ndarray):
+            return self._variables[name]
         else:
-            result_array = self.__variables[name].getArray()
+            result_array = self._variables[name].getArray()
             # reshape the result is required
-            if self.__variables_info[name].shape_local is not None and self.__variables_info[name].shape_local != result_array.shape:
-                result_array = np.require(result_array.reshape(self.__variables_info[name].shape_local), requirements="C")
+            if self._variables_info[name].shape_local is not None and self._variables_info[name].shape_local != result_array.shape:
+                result_array = np.require(result_array.reshape(self._variables_info[name].shape_local), requirements="C")
             return result_array
 
     def updateGhost(self, name: str, local_indices: np.ndarray = None, direction: str = "O2G"):
@@ -921,28 +922,28 @@ class UnstructuredGrid:
         max_indices_to_transfer = 0
         indices_send = {}
         indices_recv = {}
-        for rank in self.ghost_mapping:
+        for rank in self._ghost_mapping:
             # send our data to external users
             if direction == "O2G":
                 # select the indices that the current rank should send to the rank "rank".
                 if local_indices is not None:
                     _indices_send = np.intersect1d(local_indices,
-                                                   self.ghost_mapping[rank].local_indices_that_are_remote_ghost,
+                                                   self._ghost_mapping[rank].local_indices_that_are_remote_ghost,
                                                    assume_unique=True)
                 else:
-                    _indices_send = self.ghost_mapping[rank].local_indices_that_are_remote_ghost
+                    _indices_send = self._ghost_mapping[rank].local_indices_that_are_remote_ghost
                 if _indices_send.size > 0:
                     indices_send[rank] = _indices_send
                     max_indices_to_transfer = max(max_indices_to_transfer, _indices_send.size)
                 # select the indices that the remote rank should use to write the received values to
                 if local_indices is not None:
                     _, _, _indices_of_indices = np.intersect1d(remote_indices[rank],
-                                                               self.ghost_mapping[rank].remote_indices_that_are_local_ghost,
+                                                               self._ghost_mapping[rank].remote_indices_that_are_local_ghost,
                                                                assume_unique=True,
                                                                return_indices=True)
-                    _indices_recv = self.ghost_mapping[rank].local_indices_of_ghosts[_indices_of_indices]
+                    _indices_recv = self._ghost_mapping[rank].local_indices_of_ghosts[_indices_of_indices]
                 else:
-                    _indices_recv = self.ghost_mapping[rank].local_indices_of_ghosts
+                    _indices_recv = self._ghost_mapping[rank].local_indices_of_ghosts
                 if _indices_recv.size > 0:
                     indices_recv[rank] = _indices_recv
                     max_indices_to_transfer = max(max_indices_to_transfer, _indices_recv.size)
@@ -951,22 +952,22 @@ class UnstructuredGrid:
                 # select the indices that the current rank should send to the rank "rank".
                 if local_indices is not None:
                     _indices_send = np.intersect1d(local_indices,
-                                                   self.ghost_mapping[rank].local_indices_of_ghosts,
+                                                   self._ghost_mapping[rank].local_indices_of_ghosts,
                                                    assume_unique=True)
                 else:
-                    _indices_send = self.ghost_mapping[rank].local_indices_of_ghosts
+                    _indices_send = self._ghost_mapping[rank].local_indices_of_ghosts
                 if _indices_send.size > 0:
                     indices_send[rank] = _indices_send
                     max_indices_to_transfer = max(max_indices_to_transfer, _indices_send.size)
                 # select the indices that the remote rank should use to write the received values to
                 if local_indices is not None:
                     _, _, _indices_of_indices = np.intersect1d(remote_indices[rank],
-                                                               self.ghost_mapping[rank].remote_indices_of_ghosts,
+                                                               self._ghost_mapping[rank].remote_indices_of_ghosts,
                                                                assume_unique=True,
                                                                return_indices=True)
-                    _indices_recv = self.ghost_mapping[rank].local_indices_that_are_remote_ghost[_indices_of_indices]
+                    _indices_recv = self._ghost_mapping[rank].local_indices_that_are_remote_ghost[_indices_of_indices]
                 else:
-                    _indices_recv = self.ghost_mapping[rank].local_indices_that_are_remote_ghost
+                    _indices_recv = self._ghost_mapping[rank].local_indices_that_are_remote_ghost
                 if _indices_recv.size > 0:
                     indices_recv[rank] = _indices_recv
                     max_indices_to_transfer = max(max_indices_to_transfer, _indices_recv.size)
@@ -974,16 +975,16 @@ class UnstructuredGrid:
                 raise NotImplementedError("only update direction O2G and G2O are implemented!")
 
         # get information about the variable. we need to know the number of dimensions
-        if isinstance(self.__variables[name], np.ndarray):
-            buffer_shape = list(self.__variables[name].shape)
+        if isinstance(self._variables[name], np.ndarray):
+            buffer_shape = list(self._variables[name].shape)
             buffer_shape[0] = self.ncells
-            dtype = self.__variables[name].dtype
+            dtype = self._variables[name].dtype
         else:
-            buffer_shape = list(self.__variables_info[name].shape_on_zero)
+            buffer_shape = list(self._variables_info[name].shape_on_zero)
             dtype = PETSc.RealType
 
         # calculate the maximal number of indices to transfer at once taking the maximal buffer size into account.
-        max_indices_in_buffer = self.__max_indices_to_buffer(name)
+        max_indices_in_buffer = self._max_indices_to_buffer(name)
 
         # split up the transfer into smaller chunks to make sure, the the totally used buffer size remains below the
         # total buffer limit.
@@ -1035,8 +1036,8 @@ class UnstructuredGrid:
 
         # wait for all to have a consistent state
         self.comm.barrier()
-        if not isinstance(self.__variables[name], np.ndarray):
-            self.__variables[name].assemble()
+        if not isinstance(self._variables[name], np.ndarray):
+            self._variables[name].assemble()
         log_and_time(f"UnstructuredGrid.updateGhost({name})", logging.INFO, False, self.comm)
 
 

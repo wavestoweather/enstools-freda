@@ -152,19 +152,19 @@ def test_grid_with_overlap(grid_with_overlap, gridfile, comm):
         
         # make sure, that only owned points have indices for remote ghost points
         for rank in range(comm.Get_size()):
-            if rank != comm.Get_rank() and rank in grid_with_overlap.ghost_mapping:
-                assert grid_with_overlap.ghost_mapping[rank].local_indices_that_are_remote_ghost.max() < grid_with_overlap.owned_sizes[comm.Get_rank()]
-                assert grid_with_overlap.ghost_mapping[rank].remote_indices_of_ghosts.size > 0
+            if rank != comm.Get_rank() and rank in grid_with_overlap._ghost_mapping:
+                assert grid_with_overlap._ghost_mapping[rank].local_indices_that_are_remote_ghost.max() < grid_with_overlap.owned_sizes[comm.Get_rank()]
+                assert grid_with_overlap._ghost_mapping[rank].remote_indices_of_ghosts.size > 0
 
         # make sure, that only ghost points have indices for remotely owned points
         for rank in range(comm.Get_size()):
-            if rank != comm.Get_rank() and rank in grid_with_overlap.ghost_mapping:
+            if rank != comm.Get_rank() and rank in grid_with_overlap._ghost_mapping:
                 # remote indices are remotely owned
-                assert grid_with_overlap.ghost_mapping[rank].remote_indices_that_are_local_ghost.max() < grid_with_overlap.owned_sizes[rank]
+                assert grid_with_overlap._ghost_mapping[rank].remote_indices_that_are_local_ghost.max() < grid_with_overlap.owned_sizes[rank]
                 # we must have local indices of ghosts
-                assert grid_with_overlap.ghost_mapping[rank].local_indices_of_ghosts.size > 0
+                assert grid_with_overlap._ghost_mapping[rank].local_indices_of_ghosts.size > 0
                 # local indices of ghosts must be in the local ghost range
-                assert grid_with_overlap.ghost_mapping[rank].local_indices_of_ghosts.min() >= grid_with_overlap.owned_sizes[comm.Get_rank()]
+                assert grid_with_overlap._ghost_mapping[rank].local_indices_of_ghosts.min() >= grid_with_overlap.owned_sizes[comm.Get_rank()]
 
     comm.barrier()
 
@@ -215,7 +215,7 @@ def test_ghost_update(grid_with_overlap: UnstructuredGrid, comm):
         # check the update
         updated_noise = grid_with_overlap.getLocalArray("noise")
         if comm.Get_rank() == 0:
-            np.testing.assert_array_equal(updated_noise[grid_with_overlap.ghost_mapping[1].local_indices_of_ghosts], clon[grid_with_overlap.ghost_mapping[1].local_indices_of_ghosts])
+            np.testing.assert_array_equal(updated_noise[grid_with_overlap._ghost_mapping[1].local_indices_of_ghosts], clon[grid_with_overlap._ghost_mapping[1].local_indices_of_ghosts])
 
         # perform an update in the other direction.
         clat = grid_with_overlap.getLocalArray("clat")
@@ -230,8 +230,8 @@ def test_ghost_update(grid_with_overlap: UnstructuredGrid, comm):
         updated_noise = grid_with_overlap.getLocalArray("noise")
         if comm.Get_rank() == 0:
             np.testing.assert_array_equal(
-                updated_noise[grid_with_overlap.ghost_mapping[1].local_indices_that_are_remote_ghost],
-                clat[grid_with_overlap.ghost_mapping[1].local_indices_that_are_remote_ghost])
+                updated_noise[grid_with_overlap._ghost_mapping[1].local_indices_that_are_remote_ghost],
+                clat[grid_with_overlap._ghost_mapping[1].local_indices_that_are_remote_ghost])
 
         # try an update with reduced buffer size
         grid_with_overlap.buffer_size_limit = 128
