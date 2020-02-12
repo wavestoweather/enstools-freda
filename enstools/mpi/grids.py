@@ -6,6 +6,7 @@ from petsc4py import PETSc
 from typing import Dict, Tuple
 import numpy as np
 import zlib
+from numba import jit
 
 
 class UnstructuredGrid:
@@ -31,6 +32,8 @@ class UnstructuredGrid:
         self.mpi_rank = comm.Get_rank()
         self.mpi_size = comm.Get_size()
         self.comm_mpi4py = comm.tompi4py()
+        if isGt1(self.comm):
+            comm.barrier()
 
         # start the grid construction...
         log_and_time("UnstructuredGrid.__init__()", logging.INFO, True, self.comm)
@@ -296,10 +299,7 @@ class UnstructuredGrid:
             if dof == 1:
                 indices = self._permutation_indices
             else:
-                indices = np.empty(self.ncells * dof, dtype=PETSc.IntType)
-                for index in range(self._permutation_indices.size):
-                    for d in range(dof):
-                        indices[index*dof+d] = self._permutation_indices[index] * dof + d
+                indices = _createPermutationIndices(dof, self._permutation_indices)
             self._scatter_to_zero_is[dof] = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             return self._scatter_to_zero_is[dof]
         else:
@@ -494,7 +494,6 @@ class UnstructuredGrid:
             else:
                 raise ValueError("variable without non-distributed section added!")
 
-
         # store information about this variable
         if values is not None:
             # use the real shape of the given array
@@ -612,6 +611,10 @@ class UnstructuredGrid:
                 values to (:, 1, :).
         """
         log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, True, self.comm)
+        # check arguments
+        if isGt1(self.comm) and self.mpi_rank == source and np.prod(values.shape) == 0:
+            raise ValueError("scatterData: the source ({source}) process tries to upload an empty variable!")
+
         # check the variable type. PETSc and numpy are not handled in the same way.
         if isinstance(self._variables[name], np.ndarray):
             if isGt1(self.comm):
@@ -1165,3 +1168,26 @@ class GhostMapping:
         self.remote_to_local_mapping = {}
         for i in range(self.remote_indices_that_are_local_ghost.size):
             self.remote_to_local_mapping[self.remote_indices_that_are_local_ghost[i]] = self.local_indices_of_ghosts[i]
+
+
+@jit(nopython=True)
+def _createPermutationIndices(dof: int, permutation_indices: np.ndarray) -> np.ndarray:
+    """
+    given the permutation indices for DoF=1, create an array for an larger DoF.
+
+    Parameters
+    ----------
+    dof: int
+            DoF for which we need new permutation indices.
+
+    Returns
+    -------
+    np.ndarray:
+            permutation indices assuming C-memory-order
+    """
+    ncells = permutation_indices.size
+    indices = np.empty(ncells * dof, dtype=PETSc.IntType)
+    for index in range(ncells):
+        for d in range(dof):
+            indices[index * dof + d] = permutation_indices[index] * dof + d
+    return indices
