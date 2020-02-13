@@ -1,7 +1,7 @@
 import logging
 from .logging import log_on_rank, log_and_time
 from ..mpi import onRank0, isGt1
-from enstools.misc import spherical2cartesien
+from enstools.misc import spherical2cartesian
 from petsc4py import PETSc
 from typing import Dict, Tuple
 import numpy as np
@@ -201,7 +201,7 @@ class UnstructuredGrid:
         if onRank0(comm):
             clon = ds["clon"].values
             clat = ds["clat"].values
-            coords = spherical2cartesien(lon=clon, lat=clat)
+            coords = spherical2cartesian(lon=clon, lat=clat)
         else:
             coords = np.empty((0, 3))
             clon = np.empty(0)

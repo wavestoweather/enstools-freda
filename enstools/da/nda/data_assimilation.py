@@ -72,11 +72,11 @@ class DataAssimilation:
         expanded_filenames = self.comm_mpi4py.bcast(expanded_filenames, root=0)
 
         # open the first file to get the dimensions for the state
-        variables = ["pres", "q", "t", "u", "v"]
+        variables = ["P", "QV", "T", "U", "V"]
         log_and_time(f"reading file {expanded_filenames[0]} to get information about the state dimension.", logging.INFO, True, self.comm, 0)
         if onRank0(self.comm):
             ds = read(expanded_filenames[0])
-            vertical_layers = ds["t"].shape[1]
+            vertical_layers = ds["T"].shape[1]
             state_shape = (self.grid.ncells, vertical_layers, len(variables), len(expanded_filenames))
         else:
             state_shape = None

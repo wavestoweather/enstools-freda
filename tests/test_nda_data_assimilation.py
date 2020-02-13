@@ -17,13 +17,13 @@ def da(grid_with_overlap: UnstructuredGrid, comm):
     # compare uploaded data with input files
     if onRank0(comm):
         ds = read("/archive/meteo/external-models/dwd/icon/oper/icon_oper_eps_gridded-global_rolling/202002/20200201T00/igaf2020020100.m00[1-5].grb")
-        assert ds["t"].dims == ("time", "ens", "generalVerticalLayer", "cell")
+        assert ds["T"].dims == ("time", "ens", "generalVerticalLayer", "cell")
 
     # only check variable v=4 on first five ensemble members
     for ens in range(5):
         state_v = da.grid.gatherData("state", part=(slice(None), 4, ens))
         if onRank0(comm):
-            np.testing.assert_array_equal(state_v, ds["v"].values[0, ens, ...].transpose())
+            np.testing.assert_array_equal(state_v, ds["V"].values[0, ens, ...].transpose())
     return da
 
 
