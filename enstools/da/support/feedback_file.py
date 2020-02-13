@@ -3,6 +3,7 @@ Some support routines for feedback files in idealized experiments.
 """
 from enstools.io import read
 from enstools.interpolation import model2pressure
+from enstools.misc import spherical2cartesian
 from typing import Union, List
 import xarray as xr
 import numpy as np
@@ -13,7 +14,6 @@ import logging
 # ---------------------------------------------- tables from documentation ------------------------------------------- #
 # see http://www2.cosmo-model.org/content/model/documentation/core/cosmoFeedbackFileDefinition.pdf
 # and https://gitlab.physik.uni-muenchen.de/Leonhard.Scheck/kendapy/blob/master/ekf.py
-from enstools.misc import spherical2cartesian
 
 tables = {'obstypes': {1: 'SYNOP', 2: 'AIREP', 3: 'SATOB', 4: 'DRIBU', 5: 'TEMP', 6: 'PILOT', 7: 'SATEM', 8: 'PAOB',
                        9: 'SCATT', 10: 'RAD', 11: 'GPSRO', 12: 'GPSGB', 13: 'RADAR'},
