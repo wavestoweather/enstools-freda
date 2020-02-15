@@ -265,3 +265,15 @@ class FeedbackFile:
         self.data.attrs["n_body"] += current_obs
         logging.info(f"new total number of reports in file: {self.data.attrs['n_hdr']}")
         logging.info(f"new total number of observations in file: {self.data.attrs['n_body']}")
+
+    def write_to_file(self, filename: str):
+        """
+        write content added before into a netcdf file
+
+        Parameters
+        ----------
+        filename:
+                name of the new file
+        """
+        self.data.to_netcdf(filename)
+        logging.info(f"write all observations to {filename}")
