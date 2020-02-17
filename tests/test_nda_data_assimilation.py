@@ -42,6 +42,16 @@ def da(grid_with_overlap: UnstructuredGrid, ff_file: str, comm):
     unique_indices = np.unique(da.observations["index_x"])
     assert da.observations["report_sets"].shape[0] <= unique_indices.size
 
+    # check that all reports in report_set_indices are refered to in report_sets
+    refered_indices = set()
+    for ireport_set in range(da.observations["report_sets"].shape[0]):
+        for iindex in range(da.observations["report_sets"][ireport_set, 0], da.observations["report_sets"][ireport_set, 0] + da.observations["report_sets"][ireport_set, 1]):
+            refered_indices.add(iindex)
+    diff = all_reports - refered_indices
+    assert len(diff) == 0
+    diff2 = refered_indices - all_reports
+    assert len(diff2) == 0
+
     # check that the observations in each report_set really have no overlapping points
     global_coords = da.grid.gatherData("coordinates_cartesian")
     if onRank0(comm):
