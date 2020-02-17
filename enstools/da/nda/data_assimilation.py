@@ -15,6 +15,7 @@ import numpy as np
 import os
 import logging
 import scipy.spatial
+from sklearn.neighbors import KDTree
 
 
 class DataAssimilation:
@@ -50,7 +51,7 @@ class DataAssimilation:
 
         # dataset for observations
         self.observations = {}
-        self.obs_kdtree: scipy.spatial.cKDTree = None
+        self.obs_kdtree: KDTree = None
         self.obs_coords: np.ndarray = None
         self.localization_radius = localization_radius
 
@@ -181,7 +182,8 @@ class DataAssimilation:
             # calculate cartesian coordinates for all observation reports
             self.obs_coords = spherical2cartesian(self.observations["lon"] / 180.0 * np.pi,
                                                   self.observations["lat"] / 180.0 * np.pi)
-            self.obs_kdtree = scipy.spatial.cKDTree(self.obs_coords)
+            #self.obs_kdtree = scipy.spatial.cKDTree(self.obs_coords)
+            self.obs_kdtree = KDTree(self.obs_coords)
 
             # calculate sets of observation reports that are not overlapping
             self._calculate_non_overlapping_reports()
@@ -226,9 +228,9 @@ class DataAssimilation:
             -------
             number of values stored in neighbours
             """
-            indices = self.obs_kdtree.query_ball_point(coords, r=radius)
-            neighbours[:len(indices)] = indices
-            return len(indices)
+            indices = self.obs_kdtree.query_radius(coords, r=radius)
+            neighbours[:indices[0].size] = indices[0]
+            return indices[0].size
 
         @jit(nopython=True)
         def __get_first_unused_not_in_blacklist(unused_reports: set, blacklist: set) -> int:
@@ -299,12 +301,15 @@ class DataAssimilation:
 
             # we use a set to keep track of all indices that have already been used and of those that can not be used
             # in the current report set because of overlap
-            used_reports = set()
-            used_reports.add(numba.int32(0))
-            used_reports.clear()
-            blacklist = set()
-            blacklist.add(numba.int32(0))
-            blacklist.clear()
+            #used_reports = set()
+            #used_reports.add(numba.int32(0))
+            #used_reports.clear()
+            #blacklist = set()
+            #blacklist.add(numba.int32(0))
+            #blacklist.clear()
+            #available_reports = set()
+            #available_reports.add(numba.int32(0))
+            #available_reports.clear()
 
             # we start with all reports in an unused state
             unused_reports = set()
@@ -313,38 +318,48 @@ class DataAssimilation:
 
             # loop over all reports until they all have been used.
             current_report = 0
-            while len(used_reports) < coords.shape[0]:
+            next_report_coords = np.empty((1, 3), dtype=np.float32)
+            while len(unused_reports) > 0:
                 report_set_info = np.zeros(2, dtype=np.int32)
                 first_report_in_set = current_report
 
+                # put all unused reports in a list of available reports for the next report set
+                #for one_ind in unused_reports:
+                #    available_reports.add(one_ind)
+                available_reports = unused_reports.copy()
+
                 # loop over all reports
-                while True:
-                    next_report = __get_first_unused_not_in_blacklist(unused_reports, blacklist)
-                    if next_report == -1:
-                        break
-                    used_reports.add(next_report)
+                while len(available_reports) > 0:
+                    #next_report = __get_first_unused_not_in_blacklist(unused_reports, blacklist)
+                    next_report = available_reports.pop()
+                    #if next_report == -1:
+                    #    break
+                    #used_reports.add(next_report)
                     unused_reports.remove(next_report)
                     report_set_indices[current_report] = next_report
                     current_report += 1
 
                     # find all neighbours
+                    next_report_coords[0, :] = coords[next_report, :]
                     with objmode(n_neighbours="int64"):
-                        n_neighbours = __get_obs_in_radius(coords[next_report, :], 2.1 * radius, neighbour_indices)
+                        n_neighbours = __get_obs_in_radius(next_report_coords, 2.1 * radius, neighbour_indices)
 
                     # blacklist all observations in the circle, but use 100% overlaps
                     for j in range(n_neighbours):
-                        # the current report will be one of the first neighbours of the coordinates
-                        if neighbour_indices[j] == next_report:
+                        # skip all observations that are already used or blacklisted for this round.
+                        if not neighbour_indices[j] in available_reports:
                             continue
                         # reports are assigned to the some gird cell in the global grid. They can be processed together.
                         if grid_indices[neighbour_indices[j]] == grid_indices[next_report]:
-                            used_reports.add(neighbour_indices[j])
+                            #used_reports.add(neighbour_indices[j])
                             unused_reports.remove(neighbour_indices[j])
+                            #available_reports.remove(neighbour_indices[j])
                             report_set_indices[current_report] = neighbour_indices[j]
                             current_report += 1
                         # neighbours are close, but not assigned to the same grid cell.
-                        else:
-                            blacklist.add(neighbour_indices[j])
+                        #else:
+                            #blacklist.add(neighbour_indices[j])
+                        available_reports.remove(neighbour_indices[j])
 
                 # store information about this reports set
                 report_set_info[0] = first_report_in_set
@@ -352,7 +367,8 @@ class DataAssimilation:
                 report_set_list.append(report_set_info)
 
                 # reset the blacklist as the next iteration will start with a clean domain
-                blacklist.clear()
+                #blacklist.clear()
+                #available_reports.clear()
 
             # here we can create the result array and copy the content of the list created above.
             report_sets = np.empty((len(report_set_list), 2), dtype=np.int32)
