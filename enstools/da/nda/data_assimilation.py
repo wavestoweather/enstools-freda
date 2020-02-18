@@ -55,7 +55,7 @@ class DataAssimilation:
         self.obs_coords: np.ndarray = None
         self.localization_radius: float = localization_radius
 
-    def load_state(self, filenames: Union[str, List[str]], member_re: str = None, variables=["P", "QV", "T", "U", "V"]):
+    def load_state(self, filenames: Union[str, List[str]], member_re: str = None, variables=None):
         """
         load the state vector from first guess files. One file per member is expended.
 
@@ -70,7 +70,8 @@ class DataAssimilation:
                 Example: r'm(\\d\\d\\d)'.
 
         variables:
-                variables to load from the input files.
+                variables to load from the input files. If None, then all variables are with a time dimension are
+                loaded.
         """
         log_and_time(f"DataAssimilation.load_state", logging.INFO, True, self.comm)
         # make sure that everyone works on the same list of files
@@ -102,26 +103,38 @@ class DataAssimilation:
         log_and_time(f"reading file {expanded_filenames[0]} to get information about the state dimension.", logging.INFO, True, self.comm, 0)
         if onRank0(self.comm):
             ds = read(expanded_filenames[0])
-            vertical_layers = ds[variables[0]].shape[1]
-            state_shape = (self.grid.ncells, vertical_layers, len(variables), len(expanded_filenames))
+            # only specific variables or all variables?
+            if variables is None:
+                variables = []
+                for var in ds.variables:
+                    if len(ds[var].dims) >= 2 and ds[var].dims[0] == "time":
+                        variables.append(var)
             # collect information about the state variables. this is later used for writing files
+            layer_start = 0
             for ivar, varname in enumerate(variables):
+                n_layers = 1
+                if len(ds[varname].shape) == 3:
+                    n_layers = ds[varname].shape[1]
                 self.state_variables[varname] = {
                     "dims": ds[varname].dims,
                     "attrs": ds[varname].attrs,
                     "shape": ds[varname].shape,
-                    "index": ivar
+                    "index": ivar,
+                    "layer_start": layer_start,
+                    "layer_size": n_layers
                 }
+                layer_start += n_layers
             self.state_variables["__names"] = variables
             self.state_variables["__coordinates"] = {}
             for coord in ds.coords:
                 self.state_variables["__coordinates"][coord] = ds.coords[coord]
+            state_shape = (self.grid.ncells, layer_start, len(expanded_filenames))
         else:
             state_shape = None
             self.state_variables = None
         state_shape = self.comm_mpi4py.bcast(state_shape, root=0)
         self.state_variables = self.comm_mpi4py.bcast(self.state_variables, root=0)
-        log_on_rank(f"creating the state with {len(variables)} variables, {len(expanded_filenames)} members and a shape of {state_shape}.", logging.INFO, self.comm, 0)
+        log_on_rank(f"creating the state with {len(self.state_variables['__names'])} variables, {len(expanded_filenames)} members and a shape of {state_shape}.", logging.INFO, self.comm, 0)
 
         # create the state variable
         self.grid.addVariable("state", shape=state_shape)
@@ -141,7 +154,7 @@ class DataAssimilation:
             rank_has_data = self.comm_mpi4py.allgather(rank_has_data)
 
             # upload variables in a loop over all variables
-            for ivar, varname in enumerate(variables):
+            for ivar, varname in enumerate(self.state_variables['__names']):
                 if ds is not None:
                     log_and_time(f"reading variable {varname}", logging.INFO, True, self.comm, -1)
                     values = ds[varname].values[0, ...].transpose()
@@ -155,10 +168,16 @@ class DataAssimilation:
                     if not rank_has_data[rank]:
                         continue
                     # the source uploads data, all other receive only.
-                    if rank == self.mpi_rank:
-                        self.grid.scatterData("state", values=values, source=rank, part=(slice(None), ivar, ifile + rank))
+                    layer_start = self.state_variables[varname]["layer_start"]
+                    layer_end = layer_start + self.state_variables[varname]["layer_size"]
+                    if layer_end > layer_start + 1:
+                        part = (slice(layer_start, layer_end), ifile + rank)
                     else:
-                        self.grid.scatterData("state", values=np.empty(0, PETSc.RealType), source=rank, part=(slice(None), ivar, ifile + rank))
+                        part = (layer_start, ifile + rank)
+                    if rank == self.mpi_rank:
+                        self.grid.scatterData("state", values=values, source=rank, part=part)
+                    else:
+                        self.grid.scatterData("state", values=np.empty(0, PETSc.RealType), source=rank, part=part)
 
             if one_filename is not None:
                 log_and_time(f"reading file {one_filename}", logging.INFO, False, self.comm, 0)
@@ -224,7 +243,13 @@ class DataAssimilation:
                     if not rank_has_data[rank]:
                         continue
                     # the destination downloads data, all other receive an empty array.
-                    values = self.grid.gatherData("state", dest=rank, part=(slice(None), ivar, ifile + rank))
+                    layer_start = self.state_variables[varname]["layer_start"]
+                    layer_end = self.state_variables[varname]["layer_size"] + layer_start
+                    if layer_end > layer_start + 1:
+                        part = (slice(layer_start, layer_end), ifile + rank)
+                    else:
+                        part = (layer_start, ifile + rank)
+                    values = self.grid.gatherData("state", dest=rank, part=part)
 
                     if rank == self.mpi_rank:
                         values = values.transpose().reshape(self.state_variables[varname]["shape"])

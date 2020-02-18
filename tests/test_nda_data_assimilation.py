@@ -25,7 +25,9 @@ def da(grid_with_overlap: UnstructuredGrid, ff_file: str, comm):
 
     # only check variable v=4 on first five ensemble members
     for ens in range(5):
-        state_v = da.grid.gatherData("state", part=(slice(None), 4, ens))
+        state_v_start = da.state_variables["V"]["layer_start"]
+        state_v_end = da.state_variables["V"]["layer_size"] + state_v_start
+        state_v = da.grid.gatherData("state", part=(slice(state_v_start, state_v_end), ens))
         if onRank0(comm):
             np.testing.assert_array_equal(state_v, ds["V"].values[0, ens, ...].transpose())
 
@@ -104,7 +106,7 @@ def test_save_state(da: DataAssimilation, get_tmpdir: TempDir, comm):
         ds_new = read(new_files)
 
         # loop over all variables in the new files
-        for var in ["P", "QV", "T", "U", "V"]:
+        for var in ["P", "QV", "T", "U", "V", "FR_ICE"]:
             orig = np.asarray(ds_orig[var])
             new = np.asarray(ds_new[var])
             assert orig.shape == new.shape

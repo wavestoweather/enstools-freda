@@ -610,7 +610,11 @@ class UnstructuredGrid:
                 with the global shape (ncells, 2, 3) the following part could be used: (1, ...). That would assign
                 values to (:, 1, :).
         """
-        log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, True, self.comm)
+        name_for_log = name
+        if part is not None:
+            part_str = f"{part}"
+            name_for_log += f"(:, {part_str[1:-1]})"
+        log_and_time(f"UnstructuredGrid.scatterData({name_for_log})", logging.INFO, True, self.comm)
         # check arguments
         if isGt1(self.comm) and self.mpi_rank == source and np.prod(values.shape) == 0:
             raise ValueError("scatterData: the source ({source}) process tries to upload an empty variable!")
@@ -734,7 +738,7 @@ class UnstructuredGrid:
                 #self.plex.localToGlobal(newvec, self.variables[name])
             else:
                 self._variables[name].getArray()[:] = values.ravel()
-        log_and_time(f"UnstructuredGrid.scatterData({name})", logging.INFO, False, self.comm)
+        log_and_time(f"UnstructuredGrid.scatterData({name_for_log})", logging.INFO, False, self.comm)
 
     def gatherData(self, name: str, dest: int = 0, values: np.ndarray = None, insert_mode=PETSc.InsertMode.INSERT, part: Tuple = None) -> np.ndarray:
         """
@@ -756,7 +760,11 @@ class UnstructuredGrid:
         np.ndarray:
                 an array with the size (ncells, ...)
         """
-        log_and_time(f"UnstructuredGrid.gatherData({name})", logging.INFO, True, self.comm)
+        name_for_log = name
+        if part is not None:
+            part_str = f"{part}"
+            name_for_log += f"(:, {part_str[1:-1]})"
+        log_and_time(f"UnstructuredGrid.gatherData({name_for_log})", logging.INFO, True, self.comm)
         result_array = None
 
         # distinguish between numpy and PETSc arrays
@@ -908,7 +916,7 @@ class UnstructuredGrid:
                     result_array = np.require(result_array.reshape(self._variables_info[name].shape_on_zero), requirements="C")
 
         # log timing and return result
-        log_and_time(f"UnstructuredGrid.gatherData({name})", logging.INFO, False, self.comm)
+        log_and_time(f"UnstructuredGrid.gatherData({name_for_log})", logging.INFO, False, self.comm)
         return result_array
 
     def getGlobalArray(self, name):
