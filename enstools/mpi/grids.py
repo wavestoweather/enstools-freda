@@ -628,7 +628,7 @@ class UnstructuredGrid:
 
                 # make sure, that the datatype is correct
                 if values.dtype != self._variables[name].dtype:
-                    raise ValueError("scatterData: values have the type {values.dtype.char} but should have {self.variables[name].dtype.char}")
+                    raise ValueError(f"scatterData: values have the type {values.dtype.char} but should have {self.variables[name].dtype.char}")
 
                 # limit the indices transmitted at once
                 max_indices_in_buffer = self._max_indices_to_buffer(name, buffers_per_rank=self.mpi_size)
