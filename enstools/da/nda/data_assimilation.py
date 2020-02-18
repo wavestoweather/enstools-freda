@@ -6,15 +6,13 @@ from enstools.mpi import onRank0
 from enstools.mpi.logging import log_and_time, log_on_rank
 from enstools.mpi.grids import UnstructuredGrid
 from enstools.io.reader import expand_file_pattern, read
-from typing import Union, List, Tuple
+from typing import Union, List, Dict, Any
 from petsc4py import PETSc
 from numba import jit, objmode
-import numba.typed
-import numba
 import numpy as np
 import os
 import logging
-import scipy.spatial
+import xarray as xr
 from sklearn.neighbors import KDTree
 
 
@@ -47,15 +45,17 @@ class DataAssimilation:
         self.comm_mpi4py = self.comm.tompi4py()
 
         # other internal structures.
-        self.grid = grid
+        self.grid: UnstructuredGrid = grid
+        self.state_file_names: List[str] = None
+        self.state_variables: Dict[str, Dict[str, Any]] = {}
 
         # dataset for observations
         self.observations = {}
         self.obs_kdtree: KDTree = None
         self.obs_coords: np.ndarray = None
-        self.localization_radius = localization_radius
+        self.localization_radius: float = localization_radius
 
-    def load_state(self, filenames: Union[str, List[str]], member_re: str = None):
+    def load_state(self, filenames: Union[str, List[str]], member_re: str = None, variables=["P", "QV", "T", "U", "V"]):
         """
         load the state vector from first guess files. One file per member is expended.
 
@@ -68,6 +68,9 @@ class DataAssimilation:
         member_re:
                 regular expression that is used to read the member number for the filename or path.
                 Example: r'm(\\d\\d\\d)'.
+
+        variables:
+                variables to load from the input files.
         """
         log_and_time(f"DataAssimilation.load_state", logging.INFO, True, self.comm)
         # make sure that everyone works on the same list of files
@@ -92,16 +95,32 @@ class DataAssimilation:
             expanded_filenames = None
         expanded_filenames = self.comm_mpi4py.bcast(expanded_filenames, root=0)
 
+        # keep the original file names. save_state makes use of them to get file names for output files.
+        self.state_file_names = expanded_filenames
+
         # open the first file to get the dimensions for the state
-        variables = ["P", "QV", "T", "U", "V"]
         log_and_time(f"reading file {expanded_filenames[0]} to get information about the state dimension.", logging.INFO, True, self.comm, 0)
         if onRank0(self.comm):
             ds = read(expanded_filenames[0])
-            vertical_layers = ds["T"].shape[1]
+            vertical_layers = ds[variables[0]].shape[1]
             state_shape = (self.grid.ncells, vertical_layers, len(variables), len(expanded_filenames))
+            # collect information about the state variables. this is later used for writing files
+            for ivar, varname in enumerate(variables):
+                self.state_variables[varname] = {
+                    "dims": ds[varname].dims,
+                    "attrs": ds[varname].attrs,
+                    "shape": ds[varname].shape,
+                    "index": ivar
+                }
+            self.state_variables["__names"] = variables
+            self.state_variables["__coordinates"] = {}
+            for coord in ds.coords:
+                self.state_variables["__coordinates"][coord] = ds.coords[coord]
         else:
             state_shape = None
+            self.state_variables = None
         state_shape = self.comm_mpi4py.bcast(state_shape, root=0)
+        self.state_variables = self.comm_mpi4py.bcast(self.state_variables, root=0)
         log_on_rank(f"creating the state with {len(variables)} variables, {len(expanded_filenames)} members and a shape of {state_shape}.", logging.INFO, self.comm, 0)
 
         # create the state variable
@@ -118,6 +137,7 @@ class DataAssimilation:
             else:
                 one_filename = None
                 rank_has_data = False
+                ds = None
             rank_has_data = self.comm_mpi4py.allgather(rank_has_data)
 
             # upload variables in a loop over all variables
@@ -146,6 +166,78 @@ class DataAssimilation:
         # update ghost values of the complete state
         self.grid.updateGhost("state")
         log_and_time(f"DataAssimilation.load_state", logging.INFO, False, self.comm)
+
+    def save_state(self, output_folder: str, member_folder: str = None):
+        """
+        Collect the distributed state back from all processors and store it back to individual files (one per member).
+        The original file names are used.
+
+        Parameters
+        ----------
+        output_folder:
+                folder for all output files. Without member_folder, all files are written into the same folder.
+
+        member_folder:
+                A format string for member-sub-folders. The format is used for python string formatting and should
+                contain one integer place. Example: 'm%03d'.
+        """
+        log_and_time(f"DataAssimilation.save_state", logging.INFO, True, self.comm)
+        # get a list of variables with the original order
+        variables = self.state_variables["__names"]
+
+        # check the exisitence of the output folder.
+        if onRank0(self.comm) and not os.path.exists(output_folder):
+            raise IOError(f"output folder not found: {output_folder}")
+
+        # create names for output file from the input filenames
+        output_files = []
+        for one_file in self.state_file_names:
+            one_output_file = os.path.join(output_folder, os.path.basename(one_file))
+            base, ext = os.path.splitext(one_output_file)
+            one_output_file = base + ".nc"
+            if one_output_file in output_files:
+                raise IOError("names of output files are not unique. Try to use the member_folder argument!")
+            output_files.append(one_output_file)
+
+        # loop over all files. Every rank writes one file
+        for ifile in range(0, len(output_files), self.mpi_size):
+            if ifile + self.mpi_rank < len(output_files):
+                one_filename = output_files[ifile + self.mpi_rank]
+                log_and_time(f"writing file {one_filename}", logging.INFO, True, self.comm, self.mpi_rank)
+                ds = xr.Dataset()
+                # restore coordinates
+                for coord in self.state_variables["__coordinates"]:
+                    ds.coords[coord] = self.state_variables["__coordinates"][coord]
+                ds.attrs["ensemble_member"] = ifile + self.mpi_rank + 1
+                rank_has_data = True
+            else:
+                one_filename = None
+                rank_has_data = False
+                ds = None
+            rank_has_data = self.comm_mpi4py.allgather(rank_has_data)
+
+            # download variables in a loop over all variables
+            for ivar, varname in enumerate(variables):
+                # for now, download only one variable at a time.
+                for rank in range(self.mpi_size):
+                    # skip ranks that have no data anymore
+                    if not rank_has_data[rank]:
+                        continue
+                    # the destination downloads data, all other receive an empty array.
+                    values = self.grid.gatherData("state", dest=rank, part=(slice(None), ivar, ifile + rank))
+
+                    if rank == self.mpi_rank:
+                        values = values.transpose().reshape(self.state_variables[varname]["shape"])
+                        ds[varname] = xr.DataArray(values, dims=self.state_variables[varname]["dims"],
+                                                   name=varname, attrs=self.state_variables[varname]["attrs"])
+
+            # every process now writes the content of one member to disk
+            if one_filename is not None:
+                # actually store the file on disk
+                ds.to_netcdf(one_filename, engine="scipy")
+                log_and_time(f"writing file {one_filename}", logging.INFO, False, self.comm, self.mpi_rank)
+
+        log_and_time(f"DataAssimilation.save_state", logging.INFO, False, self.comm)
 
     def load_observations(self, filename: str):
         """

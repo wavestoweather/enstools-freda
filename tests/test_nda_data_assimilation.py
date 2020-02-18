@@ -1,10 +1,13 @@
 import pytest
 import numpy as np
 import scipy.spatial
+import os
+from enstools.io.reader import expand_file_pattern
 from enstools.da.nda import DataAssimilation
 from enstools.io import read
 from enstools.mpi import onRank0
 from enstools.mpi.grids import UnstructuredGrid
+from enstools.core.tempdir import TempDir
 
 
 @pytest.fixture
@@ -79,9 +82,32 @@ def da(grid_with_overlap: UnstructuredGrid, ff_file: str, comm):
     return da
 
 
-def test_load_state(da: DataAssimilation):
+def test_save_state(da: DataAssimilation, get_tmpdir: TempDir, comm):
     """
-    load first guess files into the state
+    the da object includes a complete state. Store it into files and read back the content.
     """
-    # check that the data from file one ended up in the correct spot
-    pass
+    if onRank0(comm):
+        output_path = get_tmpdir.getpath()
+    else:
+        output_path = None
+    output_path = comm.tompi4py().bcast(output_path, root=0)
+    da.save_state(output_folder=output_path)
+
+    # read the original data and compare with the newly written files
+    if onRank0(comm):
+        # original data
+        ds_orig = read("/archive/meteo/external-models/dwd/icon/oper/icon_oper_eps_gridded-global_rolling/202002/20200201T00/igaf2020020100.m00[1-5].grb")
+        # newly written data
+        new_files = expand_file_pattern(f"{get_tmpdir.getpath()}/igaf2020020100.m00[1-5].nc")
+        for one_file in new_files:
+            assert os.path.exists(one_file)
+        ds_new = read(new_files)
+
+        # loop over all variables in the new files
+        for var in ["P", "QV", "T", "U", "V"]:
+            orig = np.asarray(ds_orig[var])
+            new = np.asarray(ds_new[var])
+            assert orig.shape == new.shape
+            np.testing.assert_array_equal(orig, new)
+    comm.barrier()
+
