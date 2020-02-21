@@ -13,7 +13,7 @@ class Algorithm(ABC):
     @abstractmethod
     def assimilate(state: np.ndarray, state_map: np.ndarray,
                    observations: np.ndarray, observation_type: np.ndarray, reports: np.ndarray,
-                   points_in_radius: np.ndarray, weigths: np.ndarray, updated: np.ndarray):
+                   points_in_radius: np.ndarray, weights: np.ndarray, updated: np.ndarray):
         """
         This function is called multiple times with different subsets of observation reports. All reports are
         processable without updating overlapping areas of the model domain. That means, the reports are guaranteed
@@ -58,7 +58,7 @@ class Algorithm(ABC):
                 array is large enough to hold all values for the largest number of grid points within the radius. In
                 smaller cases, -1 ist used as a fill values.
 
-        weigths:
+        weights:
                 Array with the same shape as points_in_radius. For each point in each localization radius of each
                 observation a weigth between 0 and 1 is provided.
 
