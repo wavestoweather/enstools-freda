@@ -5,6 +5,7 @@ import os
 from enstools.io.reader import expand_file_pattern
 from enstools.da.nda import DataAssimilation
 from enstools.io import read
+from enstools.da.nda.algorithms.default import Default
 from enstools.mpi import onRank0
 from enstools.mpi.grids import UnstructuredGrid
 from enstools.core.tempdir import TempDir
@@ -113,3 +114,11 @@ def test_save_state(da: DataAssimilation, get_tmpdir: TempDir, comm):
             np.testing.assert_array_equal(orig, new)
     comm.barrier()
 
+
+def test_run_dummy(da: DataAssimilation, comm):
+    """
+    run the actual data assimilation with the dummy algorithm.
+    """
+    # create an instance of the algorithm
+    default = Default()
+    da.run(default)

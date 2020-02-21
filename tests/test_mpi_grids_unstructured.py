@@ -6,7 +6,7 @@ from enstools.mpi.grids import UnstructuredGrid
 from enstools.mpi import init_petsc, onRank0, isGt1
 
 
-def test_grid_without_overlap(grid_without_overlap, gridfile, comm):
+def test_grid_without_overlap(grid_without_overlap: UnstructuredGrid, gridfile, comm):
     """
     test some properties of a non-overlapping grid
     """
@@ -21,7 +21,7 @@ def test_grid_without_overlap(grid_without_overlap, gridfile, comm):
     comm.barrier()
 
 
-def test_grid_with_overlap(grid_with_overlap, gridfile, comm):
+def test_grid_with_overlap(grid_with_overlap: UnstructuredGrid, gridfile, comm):
     """
     compare two grids with and without overlap
     """
@@ -93,6 +93,18 @@ def test_grid_with_overlap(grid_with_overlap, gridfile, comm):
                 assert grid_with_overlap._ghost_mapping[rank].local_indices_of_ghosts.size > 0
                 # local indices of ghosts must be in the local ghost range
                 assert grid_with_overlap._ghost_mapping[rank].local_indices_of_ghosts.min() >= grid_with_overlap.owned_sizes[comm.Get_rank()]
+
+        # check the mapping between global and local indices that is available on each local processor
+        global_owner = grid_with_overlap.gatherData("owner")
+        if comm.Get_rank() != 0:
+            global_owner = np.empty(grid_with_overlap.ncells, dtype=PETSc.RealType)
+        grid_with_overlap.comm_mpi4py.Bcast(global_owner, root=0)
+        for i_global in range(grid_with_overlap.ncells):
+            if global_owner[i_global] == grid_with_overlap.mpi_rank:
+                assert grid_with_overlap._global2local_permutation_indices[i_global] >= 0
+                assert grid_with_overlap._global2local_permutation_indices[i_global] < grid_with_overlap.owned_sizes[comm.Get_rank()]
+            else:
+                assert grid_with_overlap._global2local_permutation_indices[i_global] == -1
 
     comm.barrier()
 

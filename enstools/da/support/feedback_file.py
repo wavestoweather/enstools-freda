@@ -9,7 +9,7 @@ import xarray as xr
 import numpy as np
 import scipy.spatial
 import logging
-
+from enum import Enum
 
 # ---------------------------------------------- tables from documentation ------------------------------------------- #
 # see http://www2.cosmo-model.org/content/model/documentation/core/cosmoFeedbackFileDefinition.pdf
@@ -69,8 +69,22 @@ tables = {'obstypes': {1: 'SYNOP', 2: 'AIREP', 3: 'SATOB', 4: 'DRIBU', 5: 'TEMP'
           'veri_ens_member_names': {0: 'ENS MEAN', -1: 'DETERM', -2: 'ENS SPREAD', -3: 'BG ERROR', -4: 'TALAGRAND',
                                     -5: 'VQC WEIGHT', -6: 'MEMBER', -7: 'ENS MEAN OBS'},
           # add aliases for names used in the model
-          'varname_aliases': {"QV": "Q"}}
+          'varname_aliases': {"QV": "Q"},
+          # reverse mapping between names and variable numbers
+          'name2varno': {}
+          }
 
+# create a reverse mapping between variable names and variable type numbers
+for one_number, one_name in tables["varnames"].items():
+    tables["name2varno"][one_name] = one_number
+for alias, original in tables["varname_aliases"].items():
+    tables["name2varno"][alias] = tables["name2varno"][original]
+
+
+# types of levels we support
+class LevelType(Enum):
+    PRESSURE = tables['name2varno']['P']
+    MODEL_LEVEL = tables['name2varno']['NUM']
 
 ########################################################################################################################
 
@@ -116,7 +130,7 @@ class FeedbackFile:
 
     def add_observation_from_model_output(self, model_file: Union[str, List[str]], variables: List[str],
                                           lon: np.ndarray, lat: np.ndarray, levels: np.ndarray = None,
-                                          model_grid: str = None):
+                                          level_type: LevelType = LevelType.PRESSURE, model_grid: str = None):
         """
 
         Parameters
@@ -134,7 +148,10 @@ class FeedbackFile:
                 1-d array with latitude coordinates of observations to take (radians).
 
         levels:
-                pressure levels (in Pa) of the observations to take. Levels may be None for surface observations.
+                levels at which data should be extracted. The units depends on the value of level_type.
+
+        level_type: {"pressure", "model"}
+                meaning of the levels argument and also of the level variable in the created file.
 
         model_grid: optional
                 when the model files are not on the same grid as the reference grid for this feedback file (e.g., a grid
@@ -174,7 +191,13 @@ class FeedbackFile:
         # create a vertical interpolator for the selected indices
         p = model["P"][..., m_valid_indices]
         if levels is not None:
-            vert_intpol = model2pressure(p, levels)
+            if level_type == LevelType.PRESSURE:
+                vert_intpol = model2pressure(p, levels)
+            elif level_type == LevelType.MODEL_LEVEL:
+                # here we assume that there is a first dimension time.
+                if not isinstance(levels, np.ndarray):
+                    levels = np.asarray(levels)
+                vert_intpol = lambda x: np.take(x, levels, axis=1)
 
         # select the requested points from all model variables and interpolate them to requested levels
         variables_per_gridcell = {}
@@ -198,9 +221,10 @@ class FeedbackFile:
         body_e_o = ds["e_o"].values
         body_level = ds["level"].values
         # int32 variables
-        for obs_array in ["varno"]:
+        for obs_array in ["varno", "level_typ"]:
             ds[obs_array] = xr.DataArray(data=np.zeros(o_total_number, dtype=np.int32), name=obs_array, dims={"d_body": o_total_number})
         body_varno = ds["varno"].values
+        body_level_typ = ds["level_typ"].values
 
         # create arrays for reports
         # float32 variables
@@ -216,16 +240,10 @@ class FeedbackFile:
         hdr_n_level = ds["n_level"].values
         hdr_index_x = ds["index_x"].values
 
-        # create mapping between variable names and variable type numbers
-        var_name2type = {}
-        for one_number, one_name in tables["varnames"].items():
-            var_name2type[one_name] = one_number
-        for alias, original in tables["varname_aliases"].items():
-            var_name2type[alias] = var_name2type[original]
-
         # create reports from all observations at one gridpoint
         current_obs = 0
         offset = self.data.attrs["n_body"]
+        name2varno = tables["name2varno"]
         for cell in range(m_valid_indices.size):
             hdr_i_body[cell] = offset + current_obs
             n_level = 0
@@ -240,8 +258,9 @@ class FeedbackFile:
                     # collect all information about this observation
                     body_obs[current_obs] = value
                     body_e_o[current_obs] = 0
-                    body_varno[current_obs] = var_name2type[var]
+                    body_varno[current_obs] = name2varno[var]
                     body_level[current_obs] = levels[level]
+                    body_level_typ[current_obs] = level_type.value
                     current_obs += 1
                 if n_obs_in_level > 0:
                     n_level += 1

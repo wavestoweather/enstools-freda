@@ -1,8 +1,11 @@
 """
 Implementation for the NDA
 """
-from enstools.misc import spherical2cartesian
-from enstools.mpi import onRank0
+from enstools.misc import spherical2cartesian, distance
+
+from enstools.da.nda.algorithms import Algorithm
+from enstools.da.support import feedback_file
+from enstools.mpi import onRank0, isGt1
 from enstools.mpi.logging import log_and_time, log_on_rank
 from enstools.mpi.grids import UnstructuredGrid
 from enstools.io.reader import expand_file_pattern, read
@@ -54,6 +57,9 @@ class DataAssimilation:
         self.obs_kdtree: KDTree = None
         self.obs_coords: np.ndarray = None
         self.localization_radius: float = localization_radius
+
+        # create a kd-tree for all grid points on the current processor
+        self.local_kdtree: KDTree = KDTree(self.grid.getLocalArray("coordinates_cartesian"))
 
     def load_state(self, filenames: Union[str, List[str]], member_re: str = None, variables=None):
         """
@@ -508,8 +514,132 @@ class DataAssimilation:
             log_on_rank(f"report sets with {report_set_size_edges[bin]} to {report_set_size_edges[bin+1]} reports: {report_set_size_hist[bin]}",
                     logging.INFO, self.comm)
 
-    def run(self):
+    def run(self, algorithm: Algorithm):
         """
-        start the actual data assimilation.
+        Start the actual data assimilation. The assimilate method of the provided algorithm object will be called as
+        often as necessary to process all observations that have been added before with load_observations.
+
+        Parameters
+        ----------
+        algorithm:
+                instance of a class that implement enstools.da.nda.Algorithm.
         """
-        pass
+        log_and_time(f"DataAssimilation.run({algorithm.__class__.__name__})", logging.INFO, True, self.comm, 0, True)
+
+        # create observation array
+        n_obs = self.observations["obs"].shape[0]
+        observations = np.empty((n_obs, 3), dtype=np.float32)
+        observations[:, 0] = self.observations["obs"]
+        observations[:, 1] = self.observations["e_o"]
+        observations[:, 2] = self.observations["level"]
+        observations_type = np.empty((n_obs, 2), dtype=np.int32)
+        observations_type[:, 0] = self.observations["varno"]
+        observations_type[:, 1] = self.observations["level_typ"]
+
+        # arrays used to describe reports
+        report_set_indices = self.observations["report_set_indices"]
+        i_body = self.observations["i_body"]
+        l_body = self.observations["l_body"]
+        index_x = self.observations["index_x"]
+
+        # create the map of the state. This includes indices of variables inside the state variable
+        max_var = max(feedback_file.tables["varnames"].keys()) + 1
+        state_map = np.empty((max_var, 2), dtype=np.int32)
+        state_map[:] = -1
+        for one_var in self.state_variables["__names"]:
+            if one_var in feedback_file.tables["name2varno"]:
+                varno = feedback_file.tables["name2varno"][one_var]
+                state_map[varno, 0] = self.state_variables[one_var]["layer_start"]
+                state_map[varno, 1] = self.state_variables[one_var]["layer_size"]
+
+        # array for updated indices of the state
+        updated = np.empty(self.grid.getLocalArray("state").shape[0], dtype=np.int8)
+
+        # the coordinates of the local part of the grid
+        coords = self.grid.getLocalArray("coordinates_cartesian")
+        clon = self.grid.getLocalArray("clon")
+        clat = self.grid.getLocalArray("clat")
+
+        # here we loop over all non-overlapping sets of reports created before by _calculate_non_overlapping_reports
+        for iset in range(self.observations["report_sets"].shape[0]):
+            log_and_time(f"working on report set {iset+1} of {self.observations['report_sets'].shape[0]}",
+                         logging.INFO, True, self.comm, 0, False)
+
+            # create the arguments for the next call to assimilate
+            reports = np.empty((self.observations["report_sets"][iset, 1], 4), dtype=np.int32)
+            for ireport in range(self.observations["report_sets"][iset, 1]):
+                index_in_report_set_indices = ireport + self.observations["report_sets"][iset, 0]
+                reports[ireport, 0] = i_body[report_set_indices[index_in_report_set_indices]]
+                reports[ireport, 1] = l_body[report_set_indices[index_in_report_set_indices]]
+                # the index_x variable contains global indices and needs to be translated to local indices owned
+                # the individual processors.
+                if isGt1(self.comm):
+                    reports[ireport, 2] = \
+                        self.grid._global2local_permutation_indices[index_x[
+                            report_set_indices[index_in_report_set_indices]]]
+                else:
+                    reports[ireport, 2] = index_x[report_set_indices[index_in_report_set_indices]]
+
+            # filter for reports that are processed on other processors.
+            if isGt1(self.comm):
+                local_reports = np.where(reports[:, 2] > -1)[0]
+                reports = reports[local_reports, :]
+
+            # find grid points within the localization radius of each report.
+            # at first, get unique indices of reports on the grid
+            unique_indices = np.empty(reports.shape[0], dtype=np.int32)
+            unique_indices_dict = {}
+            for ireport in range(reports.shape[0]):
+                if not reports[ireport, 2] in unique_indices_dict:
+                    reports[ireport, 3] = len(unique_indices_dict)
+                    unique_indices_dict[reports[ireport, 2]] = reports[ireport, 3]
+                    unique_indices[reports[ireport, 3]] = reports[ireport, 2]
+                else:
+                    reports[ireport, 3] = unique_indices_dict[reports[ireport, 2]]
+            unique_indices = unique_indices[:len(unique_indices_dict)]
+
+            # only continue if we have local reports
+            if unique_indices.shape[0] > 0:
+                # this returns an array of array objects, convert to one array
+                _affected_points = self.local_kdtree.query_radius(coords[unique_indices, :], r=self.localization_radius)
+                _affected_points_max_length = max(list(map(lambda x: x.shape[0], _affected_points)))
+                affected_points = np.empty((len(_affected_points), _affected_points_max_length), dtype=np.int32)
+                for one_radius in range(len(_affected_points)):
+                    affected_points[one_radius, :_affected_points[one_radius].shape[0]] = _affected_points[one_radius]
+                    affected_points[one_radius, _affected_points[one_radius].shape[0]:] = -1
+
+                # calculate weights of each affected point
+                weigths = np.zeros(affected_points.shape, dtype=np.float32)
+                for one_radius in range(len(_affected_points)):
+                    lon_of_points = clon[_affected_points[one_radius]]
+                    lat_of_points = clat[_affected_points[one_radius]]
+                    dist = distance(clat[unique_indices[one_radius]],
+                                    lat_of_points,
+                                    clon[unique_indices[one_radius]],
+                                    lon_of_points)
+                    weigths[one_radius, :_affected_points[one_radius].shape[0]] = \
+                        algorithm.weights_for_gridpoint(self.localization_radius, dist)
+            else:
+                affected_points = np.empty((0, 0), dtype=np.int32)
+                weigths = np.empty((0, 0), dtype=np.float32)
+
+            # assimilate the observations of the current report set
+            log_and_time(f"{algorithm.__class__.__name__}.assimilate()", logging.INFO, True, self.comm, 0, False)
+            # only call the assimilate function if we have anything to do. It is possible the one rank is already ready
+            # while another rank is still processing.
+            updated[:] = 0
+            if unique_indices.shape[0] > 0:
+                algorithm.assimilate(self.grid.getLocalArray("state"), state_map,
+                                     observations, observations_type, reports, affected_points, weigths, updated)
+            self.comm.barrier()
+            log_and_time(f"{algorithm.__class__.__name__}.assimilate()", logging.INFO, False, self.comm, 0, False)
+
+            # update overlapping regions in both directions
+            local_updated = updated.nonzero()[0]
+            self.grid.updateGhost("state", local_indices=local_updated, direction="O2G")
+            self.grid.updateGhost("state", local_indices=local_updated, direction="G2O")
+
+            log_and_time(f"working on report set {iset + 1} of {self.observations['report_sets'].shape[0]}",
+                         logging.INFO, False, self.comm, 0, False)
+
+        log_and_time(f"DataAssimilation.run({algorithm.__class__.__name__})", logging.INFO, False, self.comm, 0, True)

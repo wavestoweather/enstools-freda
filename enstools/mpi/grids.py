@@ -130,6 +130,14 @@ class UnstructuredGrid:
             self.comm_mpi4py.Allgather(local_owned_size, self.owned_sizes)
             self.comm_mpi4py.Allgather(local_total_size, self.total_sizes)
 
+            # we also need the inverse mapping. from global indices to local indices. Every process has its own
+            # copy if this array with different content. A value of -1 means the the corresponding global index has no
+            # local mapping
+            self._global2local_permutation_indices = np.empty(self.ncells, dtype=np.int32)
+            self._init_global2local_permutation_indices(self._variables["global_indices"].getArray(),
+                                                        self.owned_sizes[self.mpi_rank],
+                                                        self._global2local_permutation_indices)
+
             # create a new vector containing the owner
             self.addVariablePETSc("owner")
             self.getLocalArray("owner")[:] = 0
@@ -214,6 +222,13 @@ class UnstructuredGrid:
         log_and_time("distributing coordinate fields", logging.INFO, False, self.comm)
         log_and_time("distributing support information", logging.INFO, False, self.comm)
         log_and_time("UnstructuredGrid.__init__()", logging.INFO, False, self.comm)
+
+    @staticmethod
+    @jit(nopython=True)
+    def _init_global2local_permutation_indices(global_indices, owned_size, global2local):
+        global2local[:] = -1
+        for i_local in range(owned_size):
+            global2local[np.int32(global_indices[i_local])] = i_local
 
     def _createNonDistributedSection(self, dof):
         """
@@ -992,7 +1007,7 @@ class UnstructuredGrid:
         # do nothing if we are running with one processor only
         if not isGt1(self.comm):
             return
-        log_and_time(f"UnstructuredGrid.updateGhost({name})", logging.INFO, True, self.comm)
+        log_and_time(f"UnstructuredGrid.updateGhost({name}, {direction})", logging.INFO, True, self.comm)
 
         # unless a full update is performed, the receiver needs to know which indices are on the way. Here everyone
         # tells everyone what indices are intended for transmission
@@ -1120,7 +1135,7 @@ class UnstructuredGrid:
         self.comm.barrier()
         if not isinstance(self._variables[name], np.ndarray):
             self._variables[name].assemble()
-        log_and_time(f"UnstructuredGrid.updateGhost({name})", logging.INFO, False, self.comm)
+        log_and_time(f"UnstructuredGrid.updateGhost({name}, {direction})", logging.INFO, False, self.comm)
 
 
 class VariableInfo:

@@ -1,6 +1,7 @@
 import os
 import pytest
 from enstools.da.support import FeedbackFile
+from enstools.da.support.feedback_file import LevelType
 from enstools.mpi.grids import UnstructuredGrid
 from enstools.mpi import init_petsc, onRank0, isGt1
 from enstools.misc import download, generate_coordinates
@@ -69,7 +70,7 @@ def grid_with_overlap(gridfile, comm):
     create a grid with overlapping region
     """
     # create a grid definition for this grid
-    grid = UnstructuredGrid(gridfile, overlap=1, comm=comm)
+    grid = UnstructuredGrid(gridfile, overlap=20, comm=comm)
 
     # check the number of grid points
     assert grid.ncells == 327680
@@ -129,16 +130,17 @@ def ff_with_obs(ff: FeedbackFile, comm):
     # add observations into an file with existing content
     ff.add_observation_from_model_output(
         "/archive/meteo/external-models/dwd/icon/oper/icon_oper_eps_gridded-global_rolling/202002/20200201T00/igaf2020020100.m040.grb",
-        variables=["QV"],
+        variables=["QV", "P"],
         lon=lon,
         lat=lat,
-        levels=[100000, 50000]
+        levels=[85, 60],
+        level_type=LevelType.MODEL_LEVEL
     )
 
     # here we should have additional observations for each grid point
     assert ff.data["i_body"].shape[0] == lon.shape[0] * 2
-    assert ff.data["obs"].shape[0] > lon.shape[0] * 4
-    assert ff.data["obs"].shape[0] < lon.shape[0] * 8
+    assert ff.data["obs"].shape[0] > lon.shape[0] * 5
+    assert ff.data["obs"].shape[0] < lon.shape[0] * 10
 
     # entries in i_body and l_body have to match
     i_body = ff.data["i_body"].values
