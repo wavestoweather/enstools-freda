@@ -1,7 +1,7 @@
 # source this file!
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]] ; then
     echo "ERROR: use: source ${BASH_SOURCE[0]}"
-    exit -1
+    exit 1
 fi
 
 

@@ -4,7 +4,7 @@ Some support routines for feedback files in idealized experiments.
 from enstools.io import read
 from enstools.interpolation import model2pressure
 from enstools.misc import spherical2cartesian
-from typing import Union, List
+from typing import Union, List, Dict
 import xarray as xr
 import numpy as np
 import scipy.spatial
@@ -128,7 +128,8 @@ class FeedbackFile:
         self.coords: np.ndarray = spherical2cartesian(self.grid["clon"], self.grid["clat"])
         self.kdtree = scipy.spatial.cKDTree(self.coords)
 
-    def add_observation_from_model_output(self, model_file: Union[str, List[str]], variables: List[str],
+    def add_observation_from_model_output(self, model_file: Union[str, List[str]],
+                                          variables: List[str], error: Dict[str, float],
                                           lon: np.ndarray, lat: np.ndarray, levels: np.ndarray = None,
                                           level_type: LevelType = LevelType.PRESSURE, model_grid: str = None):
         """
@@ -140,6 +141,9 @@ class FeedbackFile:
 
         variables:
                 list of variable names to extract. All variables will be placed in one report.
+
+        error:
+                dictionary with error per variable, e.g.: {"T": 1.0}.
 
         lon:
                 1-d array with longitude coordinates of observations to take (radians).
@@ -240,6 +244,11 @@ class FeedbackFile:
         hdr_n_level = ds["n_level"].values
         hdr_index_x = ds["index_x"].values
 
+        # check is all variables have errors. If not, assign zeros
+        for var in variables:
+            if not var in error:
+                error[var] = 0.0
+
         # create reports from all observations at one gridpoint
         current_obs = 0
         offset = self.data.attrs["n_body"]
@@ -257,7 +266,7 @@ class FeedbackFile:
                     n_obs_in_level += 1
                     # collect all information about this observation
                     body_obs[current_obs] = value
-                    body_e_o[current_obs] = 0
+                    body_e_o[current_obs] = error[var]
                     body_varno[current_obs] = name2varno[var]
                     body_level[current_obs] = levels[level]
                     body_level_typ[current_obs] = level_type.value

@@ -24,3 +24,18 @@ source venv/bin/activate
 
 # install all requirements
 pip install -r requirements.txt
+
+# install jupyter kernel
+ipython kernel install --user --name enstools-nda
+
+# override settings to use the venv-kernel.sh script
+cat > ${HOME}/.local/share/jupyter/kernels/enstools-nda/kernel.json << EOF
+{
+ "argv": [
+  "${PWD}/venv-kernel.sh",
+  "{connection_file}"
+ ],
+ "display_name": "enstools-nda",
+ "language": "python"
+}
+EOF

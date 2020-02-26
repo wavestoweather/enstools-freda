@@ -1,1 +1,1 @@
-from .feedback_file import FeedbackFile
+from .feedback_file import FeedbackFile, LevelType

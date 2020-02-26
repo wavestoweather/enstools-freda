@@ -17,6 +17,7 @@ import os
 import logging
 import xarray as xr
 from sklearn.neighbors import KDTree
+import inspect
 
 
 class DataAssimilation:
@@ -191,6 +192,59 @@ class DataAssimilation:
         # update ghost values of the complete state
         self.grid.updateGhost("state")
         log_and_time(f"DataAssimilation.load_state", logging.INFO, False, self.comm)
+
+    def get_state_variable(self, varname: str) -> np.ndarray:
+        """
+        get a part the the state.
+
+        Parameters
+        ----------
+        varname:
+                name of the variable to get
+
+        Returns
+        -------
+        view onto a part of the state, not a copy!
+        """
+        # is it a known variable?
+        if not varname in self.state_variables["__names"]:
+            raise ValueError(f"the variable {varname} is not part of the state. Known parts are {', '.join(self.state_variables['__names'])}")
+
+        # get the local part of the state array
+        layer_start = self.state_variables[varname]["layer_start"]
+        layer_end = self.state_variables[varname]["layer_size"] + layer_start
+        if layer_end > layer_start + 1:
+            part = (slice(None), slice(layer_start, layer_end), slice(None))
+        else:
+            part = (slice(None), layer_start, slice(None))
+        data = self.grid.getLocalArray("state")[part]
+        return data
+
+    def backup_state(self) -> np.ndarray:
+        """
+        This function returns a copy of the local partition of the state. It can be used in interactive environments
+        to test the same algorithm multiple times on the same ensemble state.
+
+        Returns
+        -------
+        np.ndarray:
+                copy of the ensemble state
+        """
+        return self.grid.getLocalArray("state").copy()
+
+    def restore_state(self, state: np.ndarray):
+        """
+        restore a copy of the state taken before with `backup_state`.
+
+        Parameters
+        ----------
+        state: np.ndarray
+                copy of the state taken with `backup_state`. The dimensionality has to match the current state.
+        """
+        dest = self.grid.getLocalArray("state")
+        if state.shape != dest.shape:
+            raise ValueError(f"restore_state: expected shape: {dest.shape}, given shape: {state.shape}")
+        dest[:] = state[:]
 
     def save_state(self, output_folder: str, member_folder: str = None):
         """
@@ -508,7 +562,7 @@ class DataAssimilation:
 
         # show information about the non-overlapping sets
         report_set_size_hist,  report_set_size_edges = \
-            np.histogram(self.observations['report_sets'][:, 1])
+            np.histogram(self.observations['report_sets'][:, 1], bins=min(10, self.observations['report_sets'].shape[0]))
         report_set_size_edges = np.floor(report_set_size_edges).astype(np.int32)
         for bin in range(report_set_size_hist.size):
             log_on_rank(f"report sets with {report_set_size_edges[bin]} to {report_set_size_edges[bin+1]} reports: {report_set_size_hist[bin]}",
@@ -522,8 +576,11 @@ class DataAssimilation:
         Parameters
         ----------
         algorithm:
-                instance of a class that implement enstools.da.nda.Algorithm.
+                the class or an instance of a class that implement enstools.da.nda.Algorithm.
         """
+        # create an instance of the algorithm argument if not done outside
+        if inspect.isclass(algorithm):
+            algorithm = algorithm()
         log_and_time(f"DataAssimilation.run({algorithm.__class__.__name__})", logging.INFO, True, self.comm, 0, True)
 
         # create observation array

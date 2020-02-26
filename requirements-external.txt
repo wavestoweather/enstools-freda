@@ -16,3 +16,4 @@ scipy
 pytest
 mpi4py
 petsc4py
+ipykernel
