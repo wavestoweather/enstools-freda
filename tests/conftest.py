@@ -30,8 +30,10 @@ def gridfile(get_tmpdir, comm):
     """
     # download a 320km grid
     if onRank0(comm):
-        gridfile = download(url="http://icon-downloads.mpimet.mpg.de/grids/public/edzw/icon_grid_0016_R02B06_G.nc",
-                            destination=os.path.join(get_tmpdir.getpath(), "R02B06.nc"))
+        gridfile = "/archive/meteo/external-models/dwd/grids/icon_grid_0016_R02B06_G.nc"
+        if not os.path.exists(gridfile):
+            gridfile = download(url="http://icon-downloads.mpimet.mpg.de/grids/public/edzw/icon_grid_0016_R02B06_G.nc",
+                                destination=os.path.join(get_tmpdir.getpath(), "R02B06.nc"))
         ds = read(gridfile)
     else:
         ds = None
@@ -116,6 +118,7 @@ def ff_with_obs(ff: FeedbackFile, comm):
     ff.add_observation_from_model_output(
         "/archive/meteo/external-models/dwd/icon/oper/icon_oper_eps_gridded-global_rolling/202002/20200201T00/igaf2020020100.m040.grb",
         variables=["T", "U", "V"],
+        error={"T": 1.0, "U": 1.0, "V": 1.0},
         lon=lon,
         lat=lat,
         levels=[100000, 50000]
@@ -131,6 +134,7 @@ def ff_with_obs(ff: FeedbackFile, comm):
     ff.add_observation_from_model_output(
         "/archive/meteo/external-models/dwd/icon/oper/icon_oper_eps_gridded-global_rolling/202002/20200201T00/igaf2020020100.m040.grb",
         variables=["QV", "P"],
+        error={"QV": 0.001, "P": 100.0},
         lon=lon,
         lat=lat,
         levels=[85, 60],
