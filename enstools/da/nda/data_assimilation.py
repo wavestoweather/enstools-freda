@@ -322,7 +322,7 @@ class DataAssimilation:
                 ds.to_netcdf(one_filename, engine="scipy")
                 log_and_time(f"writing file {one_filename}", logging.INFO, False, self.comm, self.mpi_rank)
 
-        log_and_time(f"DataAssimilation.save_state", logging.INFO, False, self.comm)
+        log_and_time(f"DataAssimilation.save_state", logging.INFO, False, self.comm, 0, True)
 
     def load_observations(self, filename: str):
         """
