@@ -3,8 +3,8 @@ set -e
 # create virtual environments with all dependencies
 
 # some dependencies are taken from the module system
-module purge
-module load $(cat modules.txt)
+source venv-functions.sh
+load_modules
 
 # set petsc dir to dir + architecture. This is required for petsc4py to build
 if [[ -e $PETSC_DIR/$PETSC_ARCH/include/petsc.h ]] ; then
@@ -26,7 +26,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # install jupyter kernel
+module load python
 ipython kernel install --user --name enstools-nda
+module unload python
 
 # override settings to use the venv-kernel.sh script
 cat > ${HOME}/.local/share/jupyter/kernels/enstools-nda/kernel.json << EOF

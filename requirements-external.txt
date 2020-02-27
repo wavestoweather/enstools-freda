@@ -7,7 +7,7 @@ cachey
 pint
 decorator
 multipledispatch
-numba
+numba>=0.48.0
 cython
 cartopy
 matplotlib

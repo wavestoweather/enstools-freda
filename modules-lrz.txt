@@ -1,0 +1,1 @@
+lrz/nodev spack petsc/single-icc-19 intel/19.0 mpi.intel/2019 mkl/2019 eccodes/2.9.0-icc-19 eccodes-dwd-defs/2.9.0

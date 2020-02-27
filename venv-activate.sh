@@ -6,9 +6,8 @@ fi
 
 
 # load required modules
-module purge
-module load $(cat modules.txt)
-module list
+source venv-functions.sh
+load_modules
 
 # activate python environment
 source venv/bin/activate
