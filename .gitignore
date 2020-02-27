@@ -5,3 +5,4 @@ build
 venv
 .vscode
 .cache
+*.egg-info
