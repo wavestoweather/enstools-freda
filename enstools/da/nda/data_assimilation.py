@@ -2,7 +2,6 @@
 Implementation for the NDA
 """
 from enstools.misc import spherical2cartesian, distance
-
 from enstools.da.nda.algorithms import Algorithm
 from enstools.da.support import feedback_file
 from enstools.mpi import onRank0, isGt1

@@ -1,4 +1,4 @@
-from . import Algorithm, model_equivalent, covariance
+from .algorithm import Algorithm, model_equivalent, covariance
 from numba import jit, prange, i4, f4
 import numpy as np
 

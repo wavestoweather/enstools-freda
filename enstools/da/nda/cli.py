@@ -4,7 +4,7 @@ This is the Command Line Interface for NDA, the Nameless Data-Assimilation Tool.
 from enstools.mpi import init_petsc
 from enstools.mpi.logging import log_on_rank, log_and_time
 from enstools.mpi.grids import UnstructuredGrid
-from enstools.da.nda import DataAssimilation
+from enstools.da.nda import DataAssimilation, Algorithm
 from enstools.io import read
 import argparse
 import runpy
@@ -21,6 +21,17 @@ def da(args):
     # start timing of the whole process
     log_and_time("Data Assimilation (da) sub-command", logging.INFO, True, comm, 0)
 
+    # get the algorithm to run.
+    # loop over all implementations of the Algorithm class
+    algorithm = None
+    for one_class in Algorithm.__subclasses__():
+        if one_class.__name__ == args.algorithm:
+            algorithm = one_class
+    if algorithm is None:
+        log_on_rank(f"unknown algorithm: {args.algorithm}", logging.INFO, comm, 0)
+        exit(-1)
+    log_on_rank(f"using algorithm {algorithm}", logging.INFO, comm)
+
     # create the distributed grid structure
     grid_ds = read(args.grid)
     # TODO: estimate required overlap
@@ -35,14 +46,7 @@ def da(args):
     # load observations
     da.load_observations(args.observations)
 
-    # get the algorithm to run.
-    # TODO: add a search function for the algorithm
-    if args.algorithm == "Default":
-        from enstools.da.nda.algorithms.default import Default
-        algorithm = Default
-    else:
-        log_on_rank(f"unknown algorithm: {args.algorithm}", logging.INFO, comm, 0)
-        exit(-1)
+    # run the actual data assimilation
     da.run(algorithm)
 
     # store the updated state back into files
