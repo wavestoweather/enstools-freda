@@ -1,6 +1,6 @@
 import logging
 from .logging import log_on_rank, log_and_time
-from ..mpi import onRank0, isGt1
+from ..mpi import onRank0, isGt1, crc16
 from enstools.misc import spherical2cartesian
 from petsc4py import PETSc
 from typing import Dict, Tuple
@@ -651,7 +651,7 @@ class UnstructuredGrid:
                 requests_resv = None
                 for start_index in range(0, self.owned_sizes.max(), max_indices_in_buffer):
                     # use a checksum of the name as tag in MPI messages
-                    name_tag = zlib.crc32(f"scatterData{name}{start_index}".encode()) // 2
+                    name_tag = crc16(f"scatterData{name}{start_index}".encode())
                     # the data is send from the origin to all processes. at first, receivers on all processes
                     # are started. The data is written to the existing variable arrays directly
                     if self.mpi_rank != source:
@@ -814,7 +814,7 @@ class UnstructuredGrid:
                 buffer_send = None
                 for start_index in range(0, self.owned_sizes.max(), max_indices_in_buffer):
                     # use a checksum of the name as tag in MPI messages
-                    name_tag = zlib.crc32(f"gatherData{name}{start_index}".encode()) // 2
+                    name_tag = crc16(f"gatherData{name}{start_index}".encode())
                     # from all sources, send to the destination
                     # on the destination start a receiver for all sources
                     requests_recv = {}
@@ -1087,7 +1087,7 @@ class UnstructuredGrid:
         # total buffer limit.
         for start_index in range(0, max_indices_to_transfer, max_indices_in_buffer):
             # use a checksum of the name as tag in MPI messages
-            name_tag = zlib.crc32(f"updateGhost{name}{start_index}".encode()) // 2
+            name_tag = crc16(f"updateGhost{name}{start_index}".encode())
 
             # create a buffer for sending and receiving
             buffers_send = {}

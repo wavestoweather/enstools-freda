@@ -16,7 +16,9 @@ def get_tmpdir(comm):
     create a temporal directory which will be removed on exit
     """
     if onRank0(comm):
-        tmpdir = TempDir(check_free_space=False)
+        # if the environment variable SCRATCH is set, it is used a a prefix for temporal directories.
+        scratch = os.getenv("SCRATCH")
+        tmpdir = TempDir(parentdir=scratch, check_free_space=False)
     else:
         tmpdir = None
     comm.barrier()

@@ -2,6 +2,7 @@
 Support Routines for MPI-based scripts.
 """
 import sys
+from numba import jit, i2
 import petsc4py
 
 
@@ -30,3 +31,20 @@ def isGt1(comm):
         return False
     else:
         return True
+
+@jit(nopython=True)
+def crc16(data: bytearray):
+    """
+    A short check sum that can be used to create MPI tags. Some MPI implementations don't like large tags
+
+    The implmentation is taken from https://stackoverflow.com/questions/35205702/calculating-crc16-in-python
+    """
+    crc = i2(0xFFFF)
+    for i in range(0, len(data)):
+        crc ^= data[i] << 8
+        for j in range(0, 8):
+            if (crc & 0x8000) > 0:
+                crc =(crc << 1) ^ 0x1021
+            else:
+                crc = crc << 1
+    return crc & 0xFFFF
