@@ -30,7 +30,7 @@ def da(args):
     if algorithm is None:
         log_on_rank(f"unknown algorithm: {args.algorithm}", logging.INFO, comm, 0)
         exit(-1)
-    log_on_rank(f"using algorithm {algorithm}", logging.INFO, comm)
+    log_on_rank(f"using algorithm {algorithm.__module__}.{algorithm.__name__}", logging.INFO, comm)
 
     # create the distributed grid structure
     grid_ds = read(args.grid)
