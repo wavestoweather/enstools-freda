@@ -41,3 +41,6 @@ cat > ${HOME}/.local/share/jupyter/kernels/enstools-nda/kernel.json << EOF
  "language": "python"
 }
 EOF
+
+# install the nda-package editable into the environment
+pip install -e .
