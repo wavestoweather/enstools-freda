@@ -1,5 +1,3 @@
-import os
-import pytest
 from enstools.da.support import FeedbackFile
 from enstools.da.support.feedback_file import LevelType
 from enstools.mpi.grids import UnstructuredGrid
@@ -7,6 +5,8 @@ from enstools.mpi import init_petsc, onRank0, isGt1
 from enstools.misc import download, generate_coordinates
 from enstools.core.tempdir import TempDir
 from enstools.io import read
+import os
+import pytest
 import numpy as np
 
 

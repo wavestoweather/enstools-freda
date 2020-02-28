@@ -23,6 +23,7 @@ fi
 source venv/bin/activate
 
 # install all requirements
+pip install --upgrade pip
 pip install -r requirements.txt
 
 # install jupyter kernel
