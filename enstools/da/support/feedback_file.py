@@ -109,7 +109,10 @@ class FeedbackFile:
         """
         # load an existing file
         if filename is not None:
-            self.data: xr.Dataset = read(filename)
+            # read the file completely into the memory and close it afterwards.
+            ds = read(filename, in_memory=True)
+            self.data: xr.Dataset = ds.copy(deep=True)
+            ds.close()
         else:
             self.data: xr.Dataset = xr.Dataset()
             self.data.attrs["n_hdr"] = 0
