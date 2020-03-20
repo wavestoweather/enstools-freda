@@ -86,7 +86,13 @@ class Algorithm(ABC):
         -------
         value between 0 and 1.
         """
-        return np.exp(-0.5*(distance/localization_radius)**2)
+        localization_radius = 0.5*localization_radius
+        gcf = np.where( distance <= localization_radius,-0.25*(distance/localization_radius)**5+0.5*(distance/localization_radius)**4+(5.0/8.0)*(distance/localization_radius)**3-(5.0/3.0)*(distance/localization_radius)**2+1.0,(1.0/12.0)*(distance/localization_radius)**5-0.5*(distance/localization_radius)**4+(5.0/8.0)*(distance/localization_radius)**3+(5.0/3.0)*(distance/localization_radius)**2-5*(distance/localization_radius)+4-(2.0/3.0)*(localization_radius/distance) )
+        gcf = np.where(distance >=  2*localization_radius,0,gcf)
+        gcf = np.where(distance < 1.0,1,gcf)
+        print(gcf.max())
+        print(gcf.min())
+        return gcf
 
 
 
