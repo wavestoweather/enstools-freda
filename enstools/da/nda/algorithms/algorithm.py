@@ -69,6 +69,7 @@ class Algorithm(ABC):
         """
 
     @staticmethod
+    @jit("f4[:](f4, f4[:])", nopython=True, nogil=True)
     def weights_for_gridpoint(localization_radius: float, distance: np.ndarray):
         """
         This function is used to calculate a weight for each grid points in the localization radius. It is called from
@@ -86,8 +87,36 @@ class Algorithm(ABC):
         -------
         value between 0 and 1.
         """
-        return np.exp(-0.5*(distance/localization_radius)**2)
+        # create an array to the result
+        gcf = np.empty_like(distance)
+        
+        # distinguish between an inner and output part of the localization radius.
+        half_localization_radius = 0.5 * localization_radius
+        
+        # loop over all distances. 
+        for i in range(distance.shape[0]):
+            if distance[i] < 1.0:
+                gcf[i] = 1.0
+            elif distance[i] <= half_localization_radius:
+                gcf[i] = -0.25        * (distance[i]/half_localization_radius)**5 \
+                         +0.5         * (distance[i]/half_localization_radius)**4 \
+                         +(5.0/8.0)   * (distance[i]/half_localization_radius)**3 \
+                         -(5.0/3.0)   * (distance[i]/half_localization_radius)**2 \
+                         +1.0
+            elif distance[i] > half_localization_radius and distance[i] <= localization_radius:
+                gcf[i] = (1.0/12.0)   * (distance[i]/half_localization_radius)**5 \
+                         -0.5         * (distance[i]/half_localization_radius)**4 \
+                         +(5.0/8.0)   * (distance[i]/half_localization_radius)**3 \
+                         +(5.0/3.0)   * (distance[i]/half_localization_radius)**2 \
+                         -5           * (distance[i]/half_localization_radius) \
+                         +4-(2.0/3.0) * (half_localization_radius/distance[i])
+            else:
+                gcf[i] = 0.0
 
+            # make sure, that weights do not get negative due to numerical imprecision
+            if gcf[i] < 0:
+                gcf[i] = 0.0
+        return gcf
 
 
 @jit("i4(f4[:,:,:], i4[:,:], i4, i4, f4)", nopython=True, nogil=True)

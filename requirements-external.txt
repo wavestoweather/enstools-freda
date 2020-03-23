@@ -15,5 +15,5 @@ netCDF4
 scipy
 pytest
 mpi4py
-petsc4py
 ipykernel
+git+https://bitbucket.org/petsc/petsc4py.git

@@ -45,7 +45,7 @@ class Default(Algorithm):
 
                 # calculate variance of model equivalent
                 p_equivalent = np.sum(deviation_equivalent_mean**2) * n_inv
-                denominator = p_equivalent * observations[i_obs, 1]**2
+                denominator = 1.0 / (p_equivalent * observations[i_obs, 1]**2)
 
                 # loop over all grid cells and all variables that are within the localization radius
                 # This loop runs in parallel if NUMBA_NUM_THREADS is larger than 1.
@@ -68,4 +68,4 @@ class Default(Algorithm):
 
                         # update the state at the current location
                         for i_ens in range(n_ens):
-                            state[i_cell, i_layer, i_ens] += p * denominator
+                            state[i_cell, i_layer, i_ens] += p * denominator * innovation[i_ens]
