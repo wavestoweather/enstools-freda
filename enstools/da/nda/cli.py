@@ -199,7 +199,7 @@ def main():
     parser_da = subparsers.add_parser("da", help="run the data assimilation.")
     parser_da.add_argument("--first-guess", required=True, nargs="+", help="first guess files to be read as background.")
     parser_da.add_argument("--output-folder", required=True, help="folder into which output files are written after the data assimilation is done.")
-    parser_ff.add_argument("--member-folder", help="for member specific destination folders.")
+    parser_da.add_argument("--member-folder", help="for member specific destination folders.")
     parser_da.add_argument("--grid", required=True, help="grid definition file which matches the first-guess files.")
     parser_da.add_argument("--observations", required=True, help="A feedback file created with the 'ff' sub-command containing the observations to assimilate.")
     parser_da.add_argument("--loc-radius", type=int, default=1000, help="localization radius in km. Default is 1000.")
