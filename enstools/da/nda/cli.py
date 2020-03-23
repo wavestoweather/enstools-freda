@@ -12,7 +12,7 @@ import argparse
 import runpy
 import logging
 import os
-
+import pdb
 
 def da(args):
     """
@@ -39,7 +39,6 @@ def da(args):
     grid_ds = read(args.grid)
     # TODO: estimate required overlap
     grid = UnstructuredGrid(grid_ds, overlap=25, comm=comm)
-
     # create the DA object. It makes use of the grid object for communication
     da = DataAssimilation(grid, localization_radius=args.loc_radius * 1000)
 
@@ -218,6 +217,7 @@ def main():
     parser_ff.add_argument("--errors", required=True, nargs="+", help="observation error for each variable. Format: name:error.")
     parser_ff.add_argument("--levels", required=True, help="vertical levels to extract. The same levels are extracted for all variables. Comma-separated values or a range as in --obs-lon is expected.")
     parser_ff.add_argument("--level-type", default="model", choices={"model", "pressure"}, help="unit of the levels given in --levels.")
+    parser_ff.add_argument("--member-folder", nargs="+", help="for member specific destination folders.")
     parser_ff.set_defaults(func=ff)
 
     # parse the arguments and run the selected function
