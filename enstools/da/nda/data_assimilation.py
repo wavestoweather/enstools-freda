@@ -17,7 +17,7 @@ import logging
 import xarray as xr
 from sklearn.neighbors import KDTree
 import inspect
-
+import re
 
 class DataAssimilation:
     """
@@ -270,7 +270,9 @@ class DataAssimilation:
         # create names for output file from the input filenames
         output_files = []
         for one_file in self.state_file_names:
-            one_output_file = os.path.join(output_folder, os.path.basename(one_file))
+            member = re.findall(r'\d+', one_file)[4]
+            one_output_file = os.path.join(output_folder+member+"/", os.path.basename(one_file))
+      #      one_output_file = os.path.join(output_folder, os.path.basename(one_file))
             base, ext = os.path.splitext(one_output_file)
             one_output_file = base + ".nc"
             if one_output_file in output_files:
