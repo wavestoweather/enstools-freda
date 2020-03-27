@@ -10,6 +10,7 @@ import numpy as np
 import scipy.spatial
 import logging
 from enum import Enum
+import pdb
 
 # ---------------------------------------------- tables from documentation ------------------------------------------- #
 # see http://www2.cosmo-model.org/content/model/documentation/core/cosmoFeedbackFileDefinition.pdf
@@ -69,7 +70,7 @@ tables = {'obstypes': {1: 'SYNOP', 2: 'AIREP', 3: 'SATOB', 4: 'DRIBU', 5: 'TEMP'
           'veri_ens_member_names': {0: 'ENS MEAN', -1: 'DETERM', -2: 'ENS SPREAD', -3: 'BG ERROR', -4: 'TALAGRAND',
                                     -5: 'VQC WEIGHT', -6: 'MEMBER', -7: 'ENS MEAN OBS'},
           # add aliases for names used in the model
-          'varname_aliases': {"QV": "Q"},
+          'varname_aliases': {"qv": "Q","v": "V","u": "U","pres": "P","temp": "T"},
           # reverse mapping between names and variable numbers
           'name2varno': {}
           }
@@ -79,7 +80,6 @@ for one_number, one_name in tables["varnames"].items():
     tables["name2varno"][one_name] = one_number
 for alias, original in tables["varname_aliases"].items():
     tables["name2varno"][alias] = tables["name2varno"][original]
-
 
 # types of levels we support
 class LevelType(Enum):
@@ -196,7 +196,7 @@ class FeedbackFile:
         m_valid_indices = np.unique(m_indices[o_valid_indices])
 
         # create a vertical interpolator for the selected indices
-        p = model["P"][..., m_valid_indices]
+        p = model["pres"][..., m_valid_indices]
         if levels is not None:
             if level_type == LevelType.PRESSURE:
                 vert_intpol = model2pressure(p, levels)
