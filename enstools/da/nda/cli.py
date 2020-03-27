@@ -201,7 +201,7 @@ def main():
     parser_da.add_argument("--member-folder", help="for member specific destination folders.")
     parser_da.add_argument("--grid", required=True, help="grid definition file which matches the first-guess files.")
     parser_da.add_argument("--observations", required=True, help="A feedback file created with the 'ff' sub-command containing the observations to assimilate.")
-    parser_da.add_argument("--loc-radius", type=int, default=1000, help="localization radius in km. Default is 1000.")
+    parser_da.add_argument("--loc-radius", type=int, default=500, help="localization radius in km. Default is 500.")
     parser_da.add_argument("--algorithm", default="Default", help="name of the algorithm to run or name of a python file containing the algorithm to run. Default is 'Default'.")
     parser_da.set_defaults(func=da)
 
