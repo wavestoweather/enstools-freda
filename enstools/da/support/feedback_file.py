@@ -204,6 +204,8 @@ class FeedbackFile:
                 # here we assume that there is a first dimension time.
                 if not isinstance(levels, np.ndarray):
                     levels = np.asarray(levels)
+                if levels.shape == ():
+                    levels = levels.reshape(1)
                 vert_intpol = lambda x: np.take(x, levels, axis=1)
 
         # select the requested points from all model variables and interpolate them to requested levels
