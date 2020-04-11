@@ -2,7 +2,6 @@ from .algorithm import Algorithm, model_equivalent, covariance
 from numba import jit, prange, i4, f4
 import numpy as np
 
-
 class Default(Algorithm):
 
     @staticmethod
@@ -41,11 +40,11 @@ class Default(Algorithm):
 
                 # calculate innovation from observation value[i_obs, 0] and observation error[i_obs, 0]
                 random_error[:] = np.random.normal(0, observations[i_obs, 1], n_ens)
-                innovation[:] = observations[i_obs, 0] + random_error - equivalent
+                innovation[:] = observations[i_obs, 0] + np.random.normal(0, observations[i_obs, 1]) + random_error - equivalent
 
                 # calculate variance of model equivalent
                 p_equivalent = np.sum(deviation_equivalent_mean**2) * n_inv
-                denominator = 1.0 / (p_equivalent * observations[i_obs, 1]**2)
+                denominator = 1.0 / (p_equivalent + observations[i_obs, 1]**2)
 
                 # loop over all grid cells and all variables that are within the localization radius
                 # This loop runs in parallel if NUMBA_NUM_THREADS is larger than 1.
