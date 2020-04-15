@@ -269,10 +269,11 @@ class DataAssimilation:
 
         # create names for output file from the input filenames
         output_files = []
-        for one_file in self.state_file_names:
-            member = re.findall(r'\d+', one_file)[4]
-            one_output_file = os.path.join(output_folder+member+"/", os.path.basename(one_file))
-      #      one_output_file = os.path.join(output_folder, os.path.basename(one_file))
+        for i_file, one_file in enumerate(self.state_file_names):
+            if member_folder is not None:
+                one_output_file = os.path.join(output_folder, member_folder % (i_file + 1), os.path.basename(one_file))
+            else:
+                one_output_file = os.path.join(output_folder, os.path.basename(one_file))
             base, ext = os.path.splitext(one_output_file)
             one_output_file = base + ".nc"
             if one_output_file in output_files:
