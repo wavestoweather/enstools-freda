@@ -12,11 +12,11 @@ function get_site() {
 
 # some dependencies are taken from the module system
 function load_modules() {
-    module purge
+    module purge || true
     case $(get_site) in
         lrz.de)
             LRZ_MODULE_ROOT=/dss/dssfs02/lwp-dss-0001/uh211/uh211-dss-0000/ru24sul/
-            module purge
+            module purge || true
             module use $LRZ_MODULE_ROOT/modulefiles
             module load $(cat modules-lrz.txt)
             export CFLAGS=-Wl,-rpath-link=/lrz/sys/intel/impi2019u6/impi/2019.6.154/intel64/libfabric/lib
