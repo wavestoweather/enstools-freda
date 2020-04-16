@@ -146,7 +146,7 @@ def ff_with_obs(ff: FeedbackFile, gridfile, comm):
 
     # the mean difference should be about zero, because random errors are centered on the perfect observation
     mean_diff_to_perfect = np.abs(np.mean(ff.data["obs"] - ff_perfect.data["obs"]))
-    assert mean_diff_to_perfect < 0.01
+    assert mean_diff_to_perfect < 0.1
 
     # add observations into an file with existing content
     ff.add_observation_from_model_output(
