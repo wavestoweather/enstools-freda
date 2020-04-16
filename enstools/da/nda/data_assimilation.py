@@ -17,13 +17,13 @@ import logging
 import xarray as xr
 from sklearn.neighbors import KDTree
 import inspect
-
+import re
 
 class DataAssimilation:
     """
     Data Assimilation Tool
     """
-    def __init__(self, grid: UnstructuredGrid, localization_radius: float = 1000000.0, comm: PETSc.Comm = None):
+    def __init__(self, grid: UnstructuredGrid, localization_radius: float = 500000.0, comm: PETSc.Comm = None):
         """
         Create a new data assimilation context for the given grid.
 
@@ -33,7 +33,7 @@ class DataAssimilation:
                 Grid and Data management structure for the data assimilation
 
         localization_radius:
-                radius of localization to be used in the assimilation. Default = 1000000.0 m
+                radius of localization to be used in the assimilation. Default = 500000.0 m
 
         comm:
                 MPI communicator. If not given, then the communicator of the grid is used.
@@ -267,10 +267,17 @@ class DataAssimilation:
         if onRank0(self.comm) and not os.path.exists(output_folder):
             raise IOError(f"output folder not found: {output_folder}")
 
+        # show that one folder per member is created
+        if member_folder is not None:
+            log_on_rank(f"using pattern for member-sub-folders: {member_folder}", logging.INFO, self.comm)
+
         # create names for output file from the input filenames
         output_files = []
-        for one_file in self.state_file_names:
-            one_output_file = os.path.join(output_folder, os.path.basename(one_file))
+        for i_file, one_file in enumerate(self.state_file_names):
+            if member_folder is not None:
+                one_output_file = os.path.join(output_folder, member_folder % (i_file + 1), os.path.basename(one_file))
+            else:
+                one_output_file = os.path.join(output_folder, os.path.basename(one_file))
             base, ext = os.path.splitext(one_output_file)
             one_output_file = base + ".nc"
             if one_output_file in output_files:
@@ -317,6 +324,9 @@ class DataAssimilation:
 
             # every process now writes the content of one member to disk
             if one_filename is not None:
+                # make sure that the parent folder exists, that is necessary for member folders.
+                if not os.path.isdir(os.path.dirname(one_filename)):
+                    os.makedirs(os.path.dirname(one_filename))
                 # actually store the file on disk
                 ds.to_netcdf(one_filename, engine="scipy")
                 log_and_time(f"writing file {one_filename}", logging.INFO, False, self.comm, self.mpi_rank)
@@ -557,7 +567,7 @@ class DataAssimilation:
         self.observations["report_sets"], self.observations["report_set_indices"] = \
             __get_report_sets(self.obs_coords,
             self.observations["index_x"],
-            self.localization_radius)
+            2*self.localization_radius)
 
         # show information about the non-overlapping sets
         report_set_size_hist,  report_set_size_edges = \
@@ -657,7 +667,7 @@ class DataAssimilation:
             # only continue if we have local reports
             if unique_indices.shape[0] > 0:
                 # this returns an array of array objects, convert to one array
-                _affected_points = self.local_kdtree.query_radius(coords[unique_indices, :], r=self.localization_radius)
+                _affected_points = self.local_kdtree.query_radius(coords[unique_indices, :], r=2*self.localization_radius)
                 _affected_points_max_length = max(list(map(lambda x: x.shape[0], _affected_points)))
                 affected_points = np.empty((len(_affected_points), _affected_points_max_length), dtype=np.int32)
                 for one_radius in range(len(_affected_points)):
@@ -685,8 +695,7 @@ class DataAssimilation:
             # while another rank is still processing.
             updated[:] = 0
             if unique_indices.shape[0] > 0:
-                algorithm.assimilate(self.grid.getLocalArray("state"), state_map,
-                                     observations, observations_type, reports, affected_points, weigths, updated)
+                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, observations, observations_type, reports, affected_points, weigths, updated)
             self.comm.barrier()
             log_and_time(f"{algorithm.__class__.__name__}.assimilate()", logging.INFO, False, self.comm, 0, False)
 

@@ -10,6 +10,7 @@ import numpy as np
 import scipy.spatial
 import logging
 from enum import Enum
+import pdb
 
 # ---------------------------------------------- tables from documentation ------------------------------------------- #
 # see http://www2.cosmo-model.org/content/model/documentation/core/cosmoFeedbackFileDefinition.pdf
@@ -69,7 +70,7 @@ tables = {'obstypes': {1: 'SYNOP', 2: 'AIREP', 3: 'SATOB', 4: 'DRIBU', 5: 'TEMP'
           'veri_ens_member_names': {0: 'ENS MEAN', -1: 'DETERM', -2: 'ENS SPREAD', -3: 'BG ERROR', -4: 'TALAGRAND',
                                     -5: 'VQC WEIGHT', -6: 'MEMBER', -7: 'ENS MEAN OBS'},
           # add aliases for names used in the model
-          'varname_aliases': {"QV": "Q"},
+          'varname_aliases': {"QV": "Q", "qv": "Q","v": "V","u": "U","pres": "P","temp": "T"},
           # reverse mapping between names and variable numbers
           'name2varno': {}
           }
@@ -79,7 +80,6 @@ for one_number, one_name in tables["varnames"].items():
     tables["name2varno"][one_name] = one_number
 for alias, original in tables["varname_aliases"].items():
     tables["name2varno"][alias] = tables["name2varno"][original]
-
 
 # types of levels we support
 class LevelType(Enum):
@@ -134,7 +134,8 @@ class FeedbackFile:
     def add_observation_from_model_output(self, model_file: Union[str, List[str]],
                                           variables: List[str], error: Dict[str, float],
                                           lon: np.ndarray, lat: np.ndarray, levels: np.ndarray = None,
-                                          level_type: LevelType = LevelType.PRESSURE, model_grid: str = None):
+                                          level_type: LevelType = LevelType.PRESSURE, model_grid: str = None,
+                                          perfect: bool = False):
         """
 
         Parameters
@@ -163,6 +164,9 @@ class FeedbackFile:
         model_grid: optional
                 when the model files are not on the same grid as the reference grid for this feedback file (e.g., a grid
                 of a higher resolution nature run), then the grid file of this grid is required.
+
+        perfect:
+                if set to true, observations are created without adding a random error. Default: False.
         """
         # read the model files and check the content.
         model = read(model_file)
@@ -196,14 +200,22 @@ class FeedbackFile:
         m_valid_indices = np.unique(m_indices[o_valid_indices])
 
         # create a vertical interpolator for the selected indices
-        p = model["P"][..., m_valid_indices]
         if levels is not None:
             if level_type == LevelType.PRESSURE:
+                if "P" in model:
+                    pressure_variable = "P"
+                elif "pres" in model:
+                    pressure_variable = "pres"
+                else:
+                    raise ValueError("we need a pressure variable in the model file to extract observations on pressure levels. Supported are: pres, P")
+                p = model[pressure_variable][..., m_valid_indices]
                 vert_intpol = model2pressure(p, levels)
             elif level_type == LevelType.MODEL_LEVEL:
                 # here we assume that there is a first dimension time.
                 if not isinstance(levels, np.ndarray):
                     levels = np.asarray(levels)
+                if levels.shape == ():
+                    levels = levels.reshape(1)
                 vert_intpol = lambda x: np.take(x, levels, axis=1)
 
         # select the requested points from all model variables and interpolate them to requested levels
@@ -267,8 +279,12 @@ class FeedbackFile:
                     if np.isnan(value):
                         continue
                     n_obs_in_level += 1
-                    # collect all information about this observation
-                    body_obs[current_obs] = value
+                    # collect all information about this observation. If the observation is not
+                    # a perfect observation, add a random error.
+                    if perfect:
+                        body_obs[current_obs] = value
+                    else:
+                        body_obs[current_obs] = value + np.random.normal(0, error[var])
                     body_e_o[current_obs] = error[var]
                     body_varno[current_obs] = name2varno[var]
                     body_level[current_obs] = levels[level]

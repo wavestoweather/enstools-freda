@@ -90,26 +90,24 @@ class Algorithm(ABC):
         # create an array to the result
         gcf = np.empty_like(distance)
         
-        # distinguish between an inner and output part of the localization radius.
-        half_localization_radius = 0.5 * localization_radius
-        
         # loop over all distances. 
         for i in range(distance.shape[0]):
+            relative_distance = distance[i]/localization_radius
             if distance[i] < 1.0:
                 gcf[i] = 1.0
-            elif distance[i] <= half_localization_radius:
-                gcf[i] = -0.25        * (distance[i]/half_localization_radius)**5 \
-                         +0.5         * (distance[i]/half_localization_radius)**4 \
-                         +(5.0/8.0)   * (distance[i]/half_localization_radius)**3 \
-                         -(5.0/3.0)   * (distance[i]/half_localization_radius)**2 \
+            elif distance[i] <= localization_radius:
+                gcf[i] = -0.25        * relative_distance**5 \
+                         +0.5         * relative_distance**4 \
+                         +(5.0/8.0)   * relative_distance**3 \
+                         -(5.0/3.0)   * relative_distance**2 \
                          +1.0
-            elif distance[i] > half_localization_radius and distance[i] <= localization_radius:
-                gcf[i] = (1.0/12.0)   * (distance[i]/half_localization_radius)**5 \
-                         -0.5         * (distance[i]/half_localization_radius)**4 \
-                         +(5.0/8.0)   * (distance[i]/half_localization_radius)**3 \
-                         +(5.0/3.0)   * (distance[i]/half_localization_radius)**2 \
-                         -5           * (distance[i]/half_localization_radius) \
-                         +4-(2.0/3.0) * (half_localization_radius/distance[i])
+            elif distance[i] > localization_radius and distance[i] <= 2*localization_radius:
+                gcf[i] = (1.0/12.0)   * relative_distance**5 \
+                         -0.5         * relative_distance**4 \
+                         +(5.0/8.0)   * relative_distance**3 \
+                         +(5.0/3.0)   * relative_distance**2 \
+                         -5           * relative_distance \
+                         +4-(2.0/3.0) / relative_distance
             else:
                 gcf[i] = 0.0
 
