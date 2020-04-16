@@ -99,7 +99,7 @@ def ff(gridfile, comm):
 
 
 @pytest.fixture(scope="session")
-def ff_with_obs(ff: FeedbackFile, comm):
+def ff_with_obs(ff: FeedbackFile, gridfile, comm):
     """
     use model output file to create observations within the feedback file
     """
@@ -108,12 +108,12 @@ def ff_with_obs(ff: FeedbackFile, comm):
         return None
 
     # create one report every one degree
-    lon, lat = generate_coordinates(2.0, lat_range=[-30, 30], unit="radians")
+    lon, lat = generate_coordinates(5.0, lat_range=[-30, 30], unit="radians")
     lon, lat = np.meshgrid(lon, lat)
     lon = lon.ravel()
     lat = lat.ravel()
-    assert lon.shape == (5400,)
-    assert lat.shape == (5400,)
+    assert lon.shape == (864,)
+    assert lat.shape == (864,)
 
     # use data of the last ensemble member to generate test observations
     # add observations into an empty file
@@ -131,6 +131,22 @@ def ff_with_obs(ff: FeedbackFile, comm):
     # we do not have six observations because some grid points are above 1000 hPa at the surface
     assert ff.data["obs"].shape[0] > lon.shape[0] * 3
     assert ff.data["obs"].shape[0] < lon.shape[0] * 6
+
+    # create a second feedback file with perfect observations and check them
+    ff_perfect = FeedbackFile(gridfile=gridfile)
+    ff_perfect.add_observation_from_model_output(
+        "/archive/meteo/external-models/dwd/icon/oper/icon_oper_eps_gridded-global_rolling/202002/20200201T00/igaf2020020100.m040.grb",
+        variables=["T", "U", "V"],
+        error={"T": 1.0, "U": 1.0, "V": 1.0},
+        lon=lon,
+        lat=lat,
+        levels=[100000, 50000],
+        perfect=True
+    )
+
+    # the mean difference should be about zero, because random errors are centered on the perfect observation
+    mean_diff_to_perfect = np.abs(np.mean(ff.data["obs"] - ff_perfect.data["obs"]))
+    assert mean_diff_to_perfect < 0.01
 
     # add observations into an file with existing content
     ff.add_observation_from_model_output(

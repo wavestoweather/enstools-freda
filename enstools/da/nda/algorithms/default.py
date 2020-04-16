@@ -40,7 +40,7 @@ class Default(Algorithm):
 
                 # calculate innovation from observation value[i_obs, 0] and observation error[i_obs, 0]
                 random_error[:] = np.random.normal(0, observations[i_obs, 1], n_ens)
-                innovation[:] = observations[i_obs, 0] + np.random.normal(0, observations[i_obs, 1]) + random_error - equivalent
+                innovation[:] = observations[i_obs, 0] + random_error - equivalent
 
                 # calculate variance of model equivalent
                 p_equivalent = np.sum(deviation_equivalent_mean**2) * n_inv

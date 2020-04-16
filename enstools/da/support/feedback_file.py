@@ -134,7 +134,8 @@ class FeedbackFile:
     def add_observation_from_model_output(self, model_file: Union[str, List[str]],
                                           variables: List[str], error: Dict[str, float],
                                           lon: np.ndarray, lat: np.ndarray, levels: np.ndarray = None,
-                                          level_type: LevelType = LevelType.PRESSURE, model_grid: str = None):
+                                          level_type: LevelType = LevelType.PRESSURE, model_grid: str = None,
+                                          perfect: bool = False):
         """
 
         Parameters
@@ -163,6 +164,9 @@ class FeedbackFile:
         model_grid: optional
                 when the model files are not on the same grid as the reference grid for this feedback file (e.g., a grid
                 of a higher resolution nature run), then the grid file of this grid is required.
+
+        perfect:
+                if set to true, observations are created without adding a random error. Default: False.
         """
         # read the model files and check the content.
         model = read(model_file)
@@ -275,8 +279,12 @@ class FeedbackFile:
                     if np.isnan(value):
                         continue
                     n_obs_in_level += 1
-                    # collect all information about this observation
-                    body_obs[current_obs] = value
+                    # collect all information about this observation. If the observation is not
+                    # a perfect observation, add a random error.
+                    if perfect:
+                        body_obs[current_obs] = value
+                    else:
+                        body_obs[current_obs] = value + np.random.normal(0, error[var])
                     body_e_o[current_obs] = error[var]
                     body_varno[current_obs] = name2varno[var]
                     body_level[current_obs] = levels[level]

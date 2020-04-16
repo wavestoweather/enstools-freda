@@ -14,6 +14,7 @@ import logging
 import os
 import pdb
 
+
 def da(args):
     """
     run the data assimilation.
@@ -52,7 +53,7 @@ def da(args):
     da.run(algorithm)
 
     # store the updated state back into files
-    da.save_state(args.output_folder,args.member_folder)
+    da.save_state(args.output_folder, args.member_folder)
 
     # show final timing
     log_and_time("Data Assimilation (da) sub-command", logging.INFO, False, comm, 0, True)
@@ -174,7 +175,8 @@ def ff(args):
                                              lon=lons,
                                              lat=lats,
                                              levels=np.asarray(levels),
-                                             level_type=level_type)
+                                             level_type=level_type,
+                                             perfect=args.perfect)
 
     # write the observation to the output file
     result.write_to_file(args.dest)
@@ -216,6 +218,7 @@ def main():
     parser_ff.add_argument("--obs-lat-lines", type=int, help="number of latidute lines between pole and equator for obs-loc-type reduced.")
     parser_ff.add_argument("--variables", required=True, nargs="+", help="names of variables. The names must match names from the source file.")
     parser_ff.add_argument("--errors", required=True, nargs="+", help="observation error for each variable. Format: name:error.")
+    parser_ff.add_argument("--perfect", required=False, action='store_true', help="if given, no random error is added to the observations.")
     parser_ff.add_argument("--levels", required=True, help="vertical levels to extract. The same levels are extracted for all variables. Comma-separated values or a range as in --obs-lon is expected.")
     parser_ff.add_argument("--level-type", default="model", choices={"model", "pressure"}, help="unit of the levels given in --levels.")
     parser_ff.add_argument("--member-folder", nargs="+", help="for member specific destination folders.")
