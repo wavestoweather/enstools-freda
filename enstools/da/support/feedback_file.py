@@ -70,7 +70,7 @@ tables = {'obstypes': {1: 'SYNOP', 2: 'AIREP', 3: 'SATOB', 4: 'DRIBU', 5: 'TEMP'
           'veri_ens_member_names': {0: 'ENS MEAN', -1: 'DETERM', -2: 'ENS SPREAD', -3: 'BG ERROR', -4: 'TALAGRAND',
                                     -5: 'VQC WEIGHT', -6: 'MEMBER', -7: 'ENS MEAN OBS'},
           # add aliases for names used in the model
-          'varname_aliases': {"qv": "Q","v": "V","u": "U","pres": "P","temp": "T"},
+          'varname_aliases': {"QV": "Q", "qv": "Q","v": "V","u": "U","pres": "P","temp": "T"},
           # reverse mapping between names and variable numbers
           'name2varno': {}
           }
@@ -196,9 +196,15 @@ class FeedbackFile:
         m_valid_indices = np.unique(m_indices[o_valid_indices])
 
         # create a vertical interpolator for the selected indices
-        p = model["pres"][..., m_valid_indices]
         if levels is not None:
             if level_type == LevelType.PRESSURE:
+                if "P" in model:
+                    pressure_variable = "P"
+                elif "pres" in model:
+                    pressure_variable = "pres"
+                else:
+                    raise ValueError("we need a pressure variable in the model file to extract observations on pressure levels. Supported are: pres, P")
+                p = model[pressure_variable][..., m_valid_indices]
                 vert_intpol = model2pressure(p, levels)
             elif level_type == LevelType.MODEL_LEVEL:
                 # here we assume that there is a first dimension time.
