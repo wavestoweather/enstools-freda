@@ -267,6 +267,10 @@ class DataAssimilation:
         if onRank0(self.comm) and not os.path.exists(output_folder):
             raise IOError(f"output folder not found: {output_folder}")
 
+        # show that one folder per member is created
+        if member_folder is not None:
+            log_on_rank(f"using pattern for member-sub-folders: {member_folder}", logging.INFO, self.comm)
+
         # create names for output file from the input filenames
         output_files = []
         for i_file, one_file in enumerate(self.state_file_names):
@@ -320,6 +324,9 @@ class DataAssimilation:
 
             # every process now writes the content of one member to disk
             if one_filename is not None:
+                # make sure that the parent folder exists, that is necessary for member folders.
+                if not os.path.isdir(os.path.dirname(one_filename)):
+                    os.makedirs(os.path.dirname(one_filename))
                 # actually store the file on disk
                 ds.to_netcdf(one_filename, engine="scipy")
                 log_and_time(f"writing file {one_filename}", logging.INFO, False, self.comm, self.mpi_rank)

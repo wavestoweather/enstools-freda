@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 import scipy.spatial
 import os
+import logging
 from enstools.io.reader import expand_file_pattern
 from enstools.da.nda import DataAssimilation
 from enstools.io import read
@@ -112,6 +113,18 @@ def test_save_state(da: DataAssimilation, get_tmpdir: TempDir, comm):
             new = np.asarray(ds_new[var])
             assert orig.shape == new.shape
             np.testing.assert_array_equal(orig, new)
+
+    # save the state again with sub folders for ensemble members
+    da.save_state(output_folder=output_path, member_folder="%03d")
+
+    # check only if the expected files have been created
+    if onRank0(comm):
+        for i_file, one_file in enumerate(sorted(new_files)):
+            new_file_in_folder = os.path.join(get_tmpdir.getpath(), "%03d" % (i_file + 1), os.path.basename(one_file))
+            if not os.path.exists(new_file_in_folder):
+                logging.error(f"File not found: {new_file_in_folder}")
+            assert os.path.exists(new_file_in_folder)
+
     comm.barrier()
 
 
