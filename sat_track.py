@@ -87,9 +87,20 @@ def comp_sat(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_ano
 
     sat = sgp4.EarthSatellite(l1, l2)
     # Compute satellites position:
-    topos = sat.at(t_range).subpoint()
+    return sat.at(t_range)
+    
+
+def sat_geoc(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_anom, m_motion):
+    sat_pos = comp_sat(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_anom, m_motion)
+    topos = sat_pos.subpoint()
     ra = topos.longitude
     dec = topos.latitude
     return ra._degrees, dec.degrees 
 
+def sat_xyz(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_anom, m_motion):
+    ts=load.timescale()
+    sat_pos = comp_sat(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_anom, m_motion)
+    x,y,z = sat_pos.position.km
+    return x, y, z
 
+    
