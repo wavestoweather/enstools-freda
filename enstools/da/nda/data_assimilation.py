@@ -23,7 +23,7 @@ class DataAssimilation:
     """
     Data Assimilation Tool
     """
-    def __init__(self, grid: UnstructuredGrid, localization_radius: float = 500000.0, comm: PETSc.Comm = None):
+    def __init__(self, grid: UnstructuredGrid, localization_radius: float = 500000.0, comm: PETSc.Comm = None, rho: float = 1.0, det: int = 0):
         """
         Create a new data assimilation context for the given grid.
 
@@ -57,6 +57,10 @@ class DataAssimilation:
         self.obs_kdtree: KDTree = None
         self.obs_coords: np.ndarray = None
         self.localization_radius: float = localization_radius
+        
+        # remaining da settings
+        self.rho = rho
+        self.det = det
 
         # create a kd-tree for all grid points on the current processor
         self.local_kdtree: KDTree = KDTree(self.grid.getLocalArray("coordinates_cartesian"))
@@ -687,7 +691,7 @@ class DataAssimilation:
             # while another rank is still processing.
             updated[:] = 0
             if unique_indices.shape[0] > 0:
-                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, observations, observations_type, reports, affected_points, weigths, updated)
+                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, observations, observations_type, reports, affected_points, weigths, updated, self.det, self.rho)
             self.comm.barrier()
             log_and_time(f"{algorithm.__class__.__name__}.assimilate()", logging.INFO, False, self.comm, 0, False)
 

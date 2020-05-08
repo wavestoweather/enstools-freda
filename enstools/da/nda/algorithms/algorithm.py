@@ -12,7 +12,7 @@ class Algorithm(ABC):
     @abstractmethod
     def assimilate(state: np.ndarray, state_map: np.ndarray,
                    observations: np.ndarray, observation_type: np.ndarray, reports: np.ndarray,
-                   points_in_radius: np.ndarray, weights: np.ndarray, updated: np.ndarray):
+                   points_in_radius: np.ndarray, weights: np.ndarray, updated: np.ndarray, det: int, rho: float):
         """
         This function is called multiple times with different subsets of observation reports. All reports are
         processable without updating overlapping areas of the model domain. That means, the reports are guaranteed
