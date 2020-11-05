@@ -66,6 +66,12 @@ class Algorithm(ABC):
                 have been updated. Only those are communicated with the other processors. Shape: (state.shape[0]).
                 Valid values: 0=not updated, 1=updated. This array is initialized with zeros, here we only need to write
                 ones.
+
+        det:
+                1 if the first member is a deterministic run, otherwise 0.
+
+        rho:
+                multiplicative inflation factor. Default is 1.0.
         """
 
     @staticmethod
