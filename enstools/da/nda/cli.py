@@ -41,7 +41,7 @@ def da(args):
     # TODO: estimate required overlap
     grid = UnstructuredGrid(grid_ds, overlap=25, comm=comm)
     # create the DA object. It makes use of the grid object for communication
-    da = DataAssimilation(grid, localization_radius=args.loc_radius * 1000)
+    da = DataAssimilation(grid, localization_radius=args.loc_radius * 1000, rho=args.rho, det=int(args.include_det))
 
     # load the ensemble state into memory
     da.load_state(args.first_guess)
@@ -199,11 +199,13 @@ def main():
     # arguments for the actual data assimilation
     parser_da = subparsers.add_parser("da", help="run the data assimilation.")
     parser_da.add_argument("--first-guess", required=True, nargs="+", help="first guess files to be read as background.")
+    parser_da.add_argument("--include-det", type=bool, default=False, help="True if the first member is a deterministic run. Default is False.")
     parser_da.add_argument("--output-folder", required=True, help="folder into which output files are written after the data assimilation is done.")
     parser_da.add_argument("--member-folder", help="for member specific destination folders.")
     parser_da.add_argument("--grid", required=True, help="grid definition file which matches the first-guess files.")
     parser_da.add_argument("--observations", required=True, help="A feedback file created with the 'ff' sub-command containing the observations to assimilate.")
     parser_da.add_argument("--loc-radius", type=int, default=500, help="localization radius in km. Default is 500.")
+    parser_da.add_argument("--rho", type=float, default=1.0, help="multiplicative inflation factor. Default is 1.0.")
     parser_da.add_argument("--algorithm", default="Default", help="name of the algorithm to run or name of a python file containing the algorithm to run. Default is 'Default'.")
     parser_da.set_defaults(func=da)
 

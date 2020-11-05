@@ -12,7 +12,7 @@ class Algorithm(ABC):
     @abstractmethod
     def assimilate(state: np.ndarray, state_map: np.ndarray,
                    observations: np.ndarray, observation_type: np.ndarray, reports: np.ndarray,
-                   points_in_radius: np.ndarray, weights: np.ndarray, updated: np.ndarray):
+                   points_in_radius: np.ndarray, weights: np.ndarray, updated: np.ndarray, det: int, rho: float):
         """
         This function is called multiple times with different subsets of observation reports. All reports are
         processable without updating overlapping areas of the model domain. That means, the reports are guaranteed
@@ -66,6 +66,12 @@ class Algorithm(ABC):
                 have been updated. Only those are communicated with the other processors. Shape: (state.shape[0]).
                 Valid values: 0=not updated, 1=updated. This array is initialized with zeros, here we only need to write
                 ones.
+
+        det:
+                1 if the first member is a deterministic run, otherwise 0.
+
+        rho:
+                multiplicative inflation factor. Default is 1.0.
         """
 
     @staticmethod
