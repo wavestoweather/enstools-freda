@@ -1,1 +1,1 @@
-lrz/nodev spack petsc/3.13-single-icc-18 intel/18.0 mpi.intel/2018 eccodes/2.9.0-icc-18 eccodes-dwd-defs/2.9.0
+lrz/nodev spack petsc/3.14.1-single-icc-18 intel/18.0 mpi.intel/2018 eccodes/2.9.0-icc-18 eccodes-dwd-defs/2.9.0

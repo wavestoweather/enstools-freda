@@ -1,1 +1,1 @@
--e git+ssh://git@gitlab.physik.uni-muenchen.de/w2w/enstools.git@nda-dev#egg=enstools
+-e git+https://gitlab.physik.uni-muenchen.de/w2w/enstools.git@nda-dev#egg=enstools
