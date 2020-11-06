@@ -16,4 +16,4 @@ scipy
 pytest
 mpi4py
 ipykernel
-git+https://gitlab.com/petsc/petsc.git#subdirectory=src/binding/petsc4py 
+git+https://gitlab.com/petsc/petsc.git@v3.14.1#subdirectory=src/binding/petsc4py 
