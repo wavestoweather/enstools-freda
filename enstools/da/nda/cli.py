@@ -201,7 +201,7 @@ def main():
     parser_da.add_argument("--first-guess", required=True, nargs="+", help="first guess files to be read as background.")
     parser_da.add_argument("--include-det", type=bool, default=False, help="True if the first member is a deterministic run. Default is False.")
     parser_da.add_argument("--output-folder", required=True, help="folder into which output files are written after the data assimilation is done.")
-    parser_da.add_argument("--member-folder", help="for member specific destination folders.")
+    parser_da.add_argument("--member-folder", help="for member specific destination folders. The format is used for python string formatting and should contain one integer place. Example: 'm%03d'")
     parser_da.add_argument("--grid", required=True, help="grid definition file which matches the first-guess files.")
     parser_da.add_argument("--observations", required=True, help="A feedback file created with the 'ff' sub-command containing the observations to assimilate.")
     parser_da.add_argument("--loc-radius", type=int, default=500, help="localization radius in km. Default is 500.")
@@ -223,7 +223,6 @@ def main():
     parser_ff.add_argument("--perfect", required=False, action='store_true', help="if given, no random error is added to the observations.")
     parser_ff.add_argument("--levels", required=True, help="vertical levels to extract. The same levels are extracted for all variables. Comma-separated values or a range as in --obs-lon is expected.")
     parser_ff.add_argument("--level-type", default="model", choices={"model", "pressure"}, help="unit of the levels given in --levels.")
-    parser_ff.add_argument("--member-folder", nargs="+", help="for member specific destination folders.")
     parser_ff.set_defaults(func=ff)
 
     # parse the arguments and run the selected function
