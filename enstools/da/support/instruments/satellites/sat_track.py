@@ -4,7 +4,6 @@ import skyfield.sgp4lib as sgp4
 import numpy as np
 
 
-
 def comp_sat(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_anom, m_motion):
     """
     Calculates the position of a satellite for given orbital elements and points in time.
@@ -45,14 +44,13 @@ def comp_sat(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_ano
 
     """
     ts = load.timescale()
-    
+
+    # hours, minutes, etc. are converted to a fraction of the reference day
     epoch_dp = epoch.hour/24. + epoch.minute/24./60. + epoch.second/24./60./60. + epoch.microsecond/24./60./60.*1e-6
+    epoch_str = "{:s}.{:s}".format(epoch.strftime("%y%j"), str("%.8f" % epoch_dp)[2:10])
     t_range = ts.utc(epoch.year, month=epoch.month, day=epoch.day, hour=epoch.hour,
                      minute=epoch.minute, second=time_range)
-    epoch_str = "{:s}.{:s}".format(epoch.strftime("%y%j"), str(epoch_dp)[2:10])
-    
     b_coef = "{:8.8f}".format(b_coef)[1:]
-    
 
     # Check plausibility of input:
     exponent = 1 + int("{:e}".format(b_star)[-3:])
@@ -80,7 +78,6 @@ def comp_sat(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_ano
     if not (0 <= arg_per <= 360):
         raise ValueError("Argument of perigree has to be between 0 and 360 degrees")
 
-
     # Create two line element set:
     l1 = "1 00000U 00000AAA {:s}  {:>8}  00000-0 {:s} 0  0000".format(epoch_str, b_coef, str_b_star)
     l2 = "2 00000 {:08.4f} {:08.4f} {:>7} {:8.4f} {:8.4f} {:11.8f}0000000".format(incl, r_asc, ecc, arg_per, m_anom, m_motion)
@@ -97,10 +94,10 @@ def sat_geoc(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_ano
     dec = topos.latitude
     return ra._degrees, dec.degrees 
 
+
 def sat_xyz(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_anom, m_motion):
-    ts=load.timescale()
     sat_pos = comp_sat(epoch, time_range, b_coef, b_star, incl, r_asc, ecc, arg_per, m_anom, m_motion)
-    x,y,z = sat_pos.position.km
+    x, y, z = sat_pos.position.km
     return x, y, z
 
     
