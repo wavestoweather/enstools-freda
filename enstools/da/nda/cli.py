@@ -92,9 +92,19 @@ def ff_coords_from_arg(arg: str, valid_min: float = None, valid_max: float = Non
     return values
 
 
-def ff(args):
+def ff_init(args):
     """
-    create or manipulate feedback files with observations.
+    Open the feedback file and init petsc
+
+    Parameters
+    ----------
+    args:
+            command line arguments
+
+    Returns
+    -------
+    tuple:
+            (comm, ff_file) MPI communicator and feedback file object.
     """
     # init petsc library
     comm = init_petsc()
@@ -106,6 +116,47 @@ def ff(args):
 
     # start timing of the whole process
     log_and_time("Feedback File (ff) sub-command", logging.INFO, True, comm, 0)
+
+    # create the feedback file object. If the destination file is already there, read it!
+    if os.path.exists(args.dest):
+        logging.info(f"reading existing destination file {args.dest} ...")
+        result = FeedbackFile(filename=args.dest, gridfile=args.grid)
+    else:
+        logging.info("creating a new feedback file...")
+        result = FeedbackFile(filename=None, gridfile=args.grid)
+
+    return comm, result
+
+
+def ff_close(args, comm, ff_file: FeedbackFile):
+    """
+    write the results to a file and close it.
+
+    Parameters
+    ----------
+    args:
+            command line arguments
+
+    comm:
+            MPI communicator
+
+    ff_file:
+            the Feedback file object.
+
+    """
+    # write the observation to the output file
+    ff_file.write_to_file(args.dest)
+
+    # show final timing
+    log_and_time("Feedback File (ff) sub-command", logging.INFO, False, comm, 0)
+
+
+def ff(args):
+    """
+    create or manipulate feedback files with observations.
+    """
+    # init petsc and create a file
+    comm, ff_file = ff_init(args)
 
     # check arguments, construct the coordinate arrays first
     if args.obs_loc_type == "1d":
@@ -160,16 +211,8 @@ def ff(args):
         logging.error(f"unsupported level type: {args.level_type}")
         exit(-1)
 
-    # create the feedback file object. If the destination file is already there, read it!
-    if os.path.exists(args.dest):
-        logging.info(f"reading existing destination file {args.dest} ...")
-        result = FeedbackFile(filename=args.dest, gridfile=args.grid)
-    else:
-        logging.info("creating a new feedback file...")
-        result = FeedbackFile(filename=None, gridfile=args.grid)
-
     # adding the observations to the result file
-    result.add_observation_from_model_output(model_file=args.source,
+    ff_file.add_observation_from_model_output(model_file=args.source,
                                              variables=args.variables,
                                              error=error_dict,
                                              lon=lons,
@@ -178,11 +221,22 @@ def ff(args):
                                              level_type=level_type,
                                              perfect=args.perfect)
 
-    # write the observation to the output file
-    result.write_to_file(args.dest)
+    # finalize the operation
+    ff_close(args, comm, ff_file)
 
-    # show final timing
-    log_and_time("Feedback File (ff) sub-command", logging.INFO, False, comm, 0)
+
+def ff_sat(args):
+    """
+    create or manipulate a feedback file with simulated satellite data.
+    """
+    # init petsc library
+    comm, ff_file = ff_init(args)
+
+    # adding the observations to the result file
+    logging.error("NOT YET IMPLEMENTED!")
+
+    # finalize
+    ff_close(args, comm, ff_file)
 
 
 def main():
@@ -224,6 +278,18 @@ def main():
     parser_ff.add_argument("--levels", required=True, help="vertical levels to extract. The same levels are extracted for all variables. Comma-separated values or a range as in --obs-lon is expected.")
     parser_ff.add_argument("--level-type", default="model", choices={"model", "pressure"}, help="unit of the levels given in --levels.")
     parser_ff.set_defaults(func=ff)
+
+    # arguments for the preparation of feedback files for satellite observations
+    parser_ff_sat = subparsers.add_parser("ff-sat", help="create Feedback Files with simulated polar-orbiting satellite observations.")
+    parser_ff_sat.add_argument("--source", required=True, help="model output file from which the observations should be extracted.")
+    parser_ff_sat.add_argument("--grid", required=True, help="grid definition file which matches the source file.")
+    parser_ff_sat.add_argument("--dest", required=True, help="destination file in which the observations should be stored. If this file already exists, new oberservations are appended.")
+    parser_ff_sat.add_argument("--satellite", required=True, choices=["aeolus"], help="type of satellite to simulate. Currently, only 'aeolus' is supported")
+    parser_ff_sat.add_argument("--start-time", required=True, help="Date and time of the first point of the simulated satellite track. Format: YYYY-MM-DDTHHMMSS")
+    parser_ff_sat.add_argument("--end-time", required=True, help="Date and time of the last point of the simulated satellite track. Format: YYYY-MM-DDTHHMMSS")
+    parser_ff_sat.add_argument("--start-lon", required=True, type=float, help="Longitude where the satellite will first overpass the equator.")
+    parser_ff_sat.add_argument("--anomaly", required=True, type=float, help="Offset from the equator for the starting point of the satellite track. Unit: degree. 360 is one complete round around the earth.")
+    parser_ff_sat.set_defaults(func=ff_sat)
 
     # parse the arguments and run the selected function
     args = parser.parse_args()

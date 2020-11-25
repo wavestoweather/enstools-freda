@@ -1,4 +1,3 @@
-from .sat_track import sat_geoc
 import skyfield.sgp4lib as sgp4
 from skyfield.constants import RAD2DEG, pi
 from .sat_track import sat_geoc, sat_xyz
@@ -6,8 +5,8 @@ from datetime import datetime, timezone
 import numpy as np
 
 
-def aeolus_coordinates(start_time: datetime, end_time: datetime, start_lon: float = 0, anomaly: float = 0,
-                       include_metric: bool = False):
+def aeolus_like_coordinates(start_time: datetime, end_time: datetime, start_lon: float = 0, anomaly: float = 0,
+                            include_metric: bool = False):
     """
     Calculate coordinates for a satellite that has a track like the real AEOLUS, but not starting from the real track.
 
@@ -48,7 +47,7 @@ def aeolus_coordinates(start_time: datetime, end_time: datetime, start_lon: floa
     l1 = "1 43600U 18066A   20328.59243159  .00047717  00000-0  18606-3 0  9997"
     l2 = "2 43600  96.7201 332.5980 0007354  96.3422 263.8689 15.86918300130608"
     sat = sgp4.EarthSatellite(l1, l2, name="AEOLUS")
-    xpdotp = 1440.0 / (2.0 * pi);
+    xpdotp = 1440.0 / (2.0 * pi)
     b_star = sat.model.bstar
     b_coef = sat.model.ndot * (xpdotp * 1440.0)
     incl = sat.model.inclo * RAD2DEG

@@ -1,5 +1,4 @@
 from skyfield.api import load
-import datetime as dt
 import skyfield.sgp4lib as sgp4
 import numpy as np
 
