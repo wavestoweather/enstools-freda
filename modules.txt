@@ -1,1 +1,2 @@
-petsc/single-gcc-9 eccodes/2.8.0-gcc-9 eccodes-dwd-defs/2.8.0
+petsc/3.14.1-single-gcc-9 eccodes/2.8.0-gcc-9 eccodes-dwd-defs/2.8.0
+

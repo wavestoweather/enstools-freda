@@ -32,7 +32,7 @@ setup(name="enstools-nda",
       author_email="robert.redl@lmu.de",
       packages=["enstools.da", "enstools.mpi"],
       namespace_packages=['enstools'],
-      requires=["mpi4py",
+      install_requires=["mpi4py",
                 "petsc4py",
                 "sklearn"],
       entry_points={
