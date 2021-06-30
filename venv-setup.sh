@@ -15,7 +15,7 @@ fi
 if [[ ! -d venv ]] ; then
     # use the python module only to create the virtual environement
     module load python
-    python3 -m venv --system-site-packages --prompt nda venv
+    python3 -m venv --prompt nda venv
     module unload python
 fi
 
@@ -23,7 +23,9 @@ fi
 source venv/bin/activate
 
 # install all requirements
-pip install --upgrade pip
+pip install --upgrade pip wheel
+pip install numpy
+export CFLAGS="-DACCEPT_USE_OF_DEPRECATED_PROJ_API_H"
 pip install -r requirements.txt
 
 # install jupyter kernel

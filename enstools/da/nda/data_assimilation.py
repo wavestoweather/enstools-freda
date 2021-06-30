@@ -398,7 +398,6 @@ class DataAssimilation:
         Create sets of reports that are not overlapping. The result will be stored in self.observations["report_sets"]
         and self.observations["report_set_indices"].
         """
-        
         # reference to kdtree without 'self' for usage in numba object code.
         obs_kdtree = self.obs_kdtree
 
@@ -422,7 +421,6 @@ class DataAssimilation:
             -------
             number of values stored in neighbours
             """
-            #indices = self.obs_kdtree.query_radius(coords, r=radius)
             indices = obs_kdtree.query_radius(coords, r=radius)
             neighbours[:indices[0].size] = indices[0]
             return indices[0].size
