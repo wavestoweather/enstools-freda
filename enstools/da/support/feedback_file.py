@@ -259,7 +259,7 @@ class FeedbackFile:
         hdr_n_level = ds["n_level"].values
         hdr_index_x = ds["index_x"].values
 
-        # check is all variables have errors. If not, assign zeros
+        # check if all variables have errors. If not, assign zeros
         for var in variables:
             if not var in error:
                 error[var] = 0.0
