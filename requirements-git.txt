@@ -1,1 +1,1 @@
--e git+https://gitlab.physik.uni-muenchen.de/w2w/enstools.git@master#egg=enstools
+-e git+https://github.com/wavestoweather/enstools.git@main#egg=enstools

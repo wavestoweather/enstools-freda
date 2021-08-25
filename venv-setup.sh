@@ -13,18 +13,27 @@ fi
 
 # create a new environment if not yet done
 if [[ ! -d venv ]] ; then
-    # use the python module only to create the virtual environement
-    module load python
     python3 -m venv --prompt nda venv
-    module unload python
 fi
 
 # activate the new environement
 source venv/bin/activate
 
+# are we using intel compilers?
+if which icc &> /dev/null ; then
+    echo "INFO: using intel compilers!"
+    export CC=icc
+    export CXX=icpc
+    export FC=ifort
+    export MPICC=mpiicc
+    export MPICXX=mpiicpc
+    export MPIF90=mpiifort
+fi
+
 # install all requirements
 pip install --upgrade pip wheel
-pip install numpy
+pip install 'numpy<1.21.0'
+pip install --no-binary :all: mpi4py
 export CFLAGS="-DACCEPT_USE_OF_DEPRECATED_PROJ_API_H"
 pip install -r requirements.txt
 
