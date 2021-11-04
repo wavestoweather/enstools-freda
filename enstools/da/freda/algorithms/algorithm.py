@@ -10,9 +10,9 @@ class Algorithm(ABC):
     """
     @staticmethod
     @abstractmethod
-    def assimilate(state: np.ndarray, state_map: np.ndarray,
+    def assimilate(state: np.ndarray, state_map: np.ndarray, state_map_inverse: np.ndarray,
                    observations: np.ndarray, observation_type: np.ndarray, reports: np.ndarray,
-                   points_in_radius: np.ndarray, weights: np.ndarray, updated: np.ndarray, det: int, rho: float):
+                   points_in_radius: np.ndarray, weights_h: np.ndarray, weights_v: np.ndarray, updated: np.ndarray, det: int, rho: float):
         """
         This function is called multiple times with different subsets of observation reports. All reports are
         processable without updating overlapping areas of the model domain. That means, the reports are guaranteed
@@ -32,6 +32,10 @@ class Algorithm(ABC):
                 number 2 in in feedback files. A loop over all layers of temperature in the state would look like this:
                 for l in range(state_map[2, 0], state_map[0] + state_map[1]). Variables that are not included in our
                 state have values of -1 at the corresponding position of the state_map
+        
+        state_map_inverse:
+                Provides model layer and observation number for a layer index as in state. Shape: (layers, 2). Meaning of the two 
+                properties per layer: 0=model layer, 1=number of variable.
 
         observations:
                 This array will always include all observations. It is the responsibility of the algorithm to select

@@ -51,6 +51,7 @@ class DataAssimilation:
         self.grid: UnstructuredGrid = grid
         self.state_file_names: List[str] = None
         self.state_variables: Dict[str, Dict[str, Any]] = {}
+        self.height_mlevels: np.ndarray = None
 
         # dataset for observations
         self.observations = {}
@@ -113,6 +114,10 @@ class DataAssimilation:
         log_and_time(f"reading file {expanded_filenames[0]} to get information about the state dimension.", logging.INFO, True, self.comm, 0)
         if onRank0(self.comm):
             ds = read(expanded_filenames[0])
+            # extract height information 
+            self.height_mlevels=read('/dss/dsskcsfs01/pn34ca/pn34ca-dss-0004/Yvonne.Ruckstuhl/DA/da-icon/rundir/001/init-fg_DOM01_ML_0001.nc')['z_ifc'].values[:,0]
+            print("test!!!!!!!!!!!!!!!!!!!")
+            print(self.height_mlevels)
             # only specific variables or all variables?
             if variables is None:
                 variables = []
@@ -144,6 +149,7 @@ class DataAssimilation:
             self.state_variables = None
         state_shape = self.comm_mpi4py.bcast(state_shape, root=0)
         self.state_variables = self.comm_mpi4py.bcast(self.state_variables, root=0)
+        self.height_mlevels = self.comm_mpi4py.bcast(self.height_mlevels, root=0)
         log_on_rank(f"creating the state with {len(self.state_variables['__names'])} variables, {len(expanded_filenames)} members and a shape of {state_shape}.", logging.INFO, self.comm, 0)
 
         # create the state variable
@@ -624,7 +630,16 @@ class DataAssimilation:
                 varno = feedback_file.tables["name2varno"][one_var]
                 state_map[varno, 0] = self.state_variables[one_var]["layer_start"]
                 state_map[varno, 1] = self.state_variables[one_var]["layer_size"]
-
+        # create the inverse of state_map
+        index = np.argmax(state_map[:,0])
+        state_map_inverse = np.empty((state_map[index,0]+state_map[index,1],2) , dtype=np.int32)
+        state_map_inverse[:] = -1
+        for one_var in self.state_variables["__names"]:
+            if one_var in feedback_file.tables["name2varno"]:
+                varno = feedback_file.tables["name2varno"][one_var]
+                #print('[varno,layer_start,layer_size]: ',[varno,state_map[varno,0],state_map[varno,1]])
+                state_map_inverse[state_map[varno,0]:state_map[varno,0]+state_map[varno,1],0] = varno
+                state_map_inverse[state_map[varno,0]:state_map[varno,0]+state_map[varno,1],1] = np.arange(0,state_map[varno,1], dtype=np.int32)
         # array for updated indices of the state
         updated = np.empty(self.grid.getLocalArray("state").shape[0], dtype=np.int8)
 
@@ -682,7 +697,14 @@ class DataAssimilation:
                     affected_points[one_radius, _affected_points[one_radius].shape[0]:] = -1
 
                 # calculate weights of each affected point
-                weigths = np.zeros(affected_points.shape, dtype=np.float32)
+                weights_v = np.zeros((len(self.height_mlevels),len(self.height_mlevels)),dtype=np.float32)
+                for i_level in range(len(self.height_mlevels)):
+                    for j_level in range(i_level+1):
+                        dist = np.empty(1, dtype=np.float32)
+                        dist[0] = np.absolute(self.height_mlevels[i_level]-self.height_mlevels[j_level])
+                        weights_v[i_level,j_level] = algorithm.weights_for_gridpoint(5,dist)
+                        weights_v[j_level,i_level] = weights_v[i_level,j_level]
+                weights_h = np.zeros(affected_points.shape, dtype=np.float32)
                 for one_radius in range(len(_affected_points)):
                     lon_of_points = clon[_affected_points[one_radius]]
                     lat_of_points = clat[_affected_points[one_radius]]
@@ -690,11 +712,12 @@ class DataAssimilation:
                                     lat_of_points,
                                     clon[unique_indices[one_radius]],
                                     lon_of_points).astype(np.float32, copy=False)
-                    weigths[one_radius, :_affected_points[one_radius].shape[0]] = \
+                    weights_h[one_radius, :_affected_points[one_radius].shape[0]] = \
                         algorithm.weights_for_gridpoint(self.localization_radius, dist)
             else:
                 affected_points = np.empty((0, 0), dtype=np.int32)
-                weigths = np.empty((0, 0), dtype=np.float32)
+                weights_v = np.empty((0, 0), dtype=np.float32)
+                weights_h = np.empty((0, 0), dtype=np.float32)
 
             # assimilate the observations of the current report set
             log_and_time(f"{algorithm.__class__.__name__}.assimilate()", logging.INFO, True, self.comm, 0, False)
@@ -702,7 +725,7 @@ class DataAssimilation:
             # while another rank is still processing.
             updated[:] = 0
             if unique_indices.shape[0] > 0:
-                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, observations, observations_type, reports, affected_points, weigths, updated, self.det, self.rho)
+                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, state_map_inverse, observations, observations_type, reports, affected_points, weights_h, weights_v, updated, self.det, self.rho)
             self.comm.barrier()
             log_and_time(f"{algorithm.__class__.__name__}.assimilate()", logging.INFO, False, self.comm, 0, False)
 
