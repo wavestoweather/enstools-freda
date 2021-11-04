@@ -2,7 +2,7 @@
 Implementation for the NDA
 """
 from enstools.misc import spherical2cartesian, distance
-from enstools.da.nda.algorithms import Algorithm
+from enstools.da.nda.algorithms import Algorithm , weights_for_gridpoint
 from enstools.da.support import feedback_file
 from enstools.mpi import onRank0, isGt1
 from enstools.mpi.logging import log_and_time, log_on_rank
@@ -18,6 +18,7 @@ import xarray as xr
 from sklearn.neighbors import KDTree
 import inspect
 import re
+#from .data_assimilation.algorithm import weights_for_gridpoint
 
 class DataAssimilation:
     """
@@ -601,10 +602,11 @@ class DataAssimilation:
 
         # create observation array
         n_obs = self.observations["obs"].shape[0]
-        observations = np.empty((n_obs, 3), dtype=np.float32)
+        observations = np.empty((n_obs, 4), dtype=np.float32)
         observations[:, 0] = self.observations["obs"]
         observations[:, 1] = self.observations["e_o"]
         observations[:, 2] = self.observations["level"]
+        observations[:, 3] = self.observations["plevel"]
         observations_type = np.empty((n_obs, 2), dtype=np.int32)
         observations_type[:, 0] = self.observations["varno"]
         observations_type[:, 1] = self.observations["level_typ"]
@@ -624,7 +626,19 @@ class DataAssimilation:
                 varno = feedback_file.tables["name2varno"][one_var]
                 state_map[varno, 0] = self.state_variables[one_var]["layer_start"]
                 state_map[varno, 1] = self.state_variables[one_var]["layer_size"]
-
+        #print("state_map.shape ",state_map.shape)
+        # create the inverse of state_map
+        index = np.argmax(state_map[:,0])
+        state_map_inverse = np.empty((state_map[index,0]+state_map[index,1],2) , dtype=np.int32)
+        state_map_inverse[:] = -1
+        for one_var in self.state_variables["__names"]:
+            if one_var in feedback_file.tables["name2varno"]:
+                varno = feedback_file.tables["name2varno"][one_var]
+                #print('[varno,layer_start,layer_size]: ',[varno,state_map[varno,0],state_map[varno,1]])
+                state_map_inverse[state_map[varno,0]:state_map[varno,0]+state_map[varno,1],0] = varno
+                state_map_inverse[state_map[varno,0]:state_map[varno,0]+state_map[varno,1],1] = np.arange(0,state_map[varno,1], dtype=np.int32)
+       # print("state_map_inverse[1,91,181,271,361] ",state_map_inverse[[1,91,181,271,361],...])            
+		
         # array for updated indices of the state
         updated = np.empty(self.grid.getLocalArray("state").shape[0], dtype=np.int8)
 
@@ -691,7 +705,7 @@ class DataAssimilation:
                                     clon[unique_indices[one_radius]],
                                     lon_of_points)
                     weigths[one_radius, :_affected_points[one_radius].shape[0]] = \
-                        algorithm.weights_for_gridpoint(self.localization_radius, dist)
+                        weights_for_gridpoint(self.localization_radius, dist)
             else:
                 affected_points = np.empty((0, 0), dtype=np.int32)
                 weigths = np.empty((0, 0), dtype=np.float32)
@@ -702,7 +716,7 @@ class DataAssimilation:
             # while another rank is still processing.
             updated[:] = 0
             if unique_indices.shape[0] > 0:
-                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, observations, observations_type, reports, affected_points, weigths, updated, self.det, self.rho)
+                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, state_map_inverse, observations, observations_type, reports, affected_points, weigths, updated, self.det, self.rho)
             self.comm.barrier()
             log_and_time(f"{algorithm.__class__.__name__}.assimilate()", logging.INFO, False, self.comm, 0, False)
 

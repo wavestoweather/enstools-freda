@@ -10,7 +10,7 @@ class Algorithm(ABC):
     """
     @staticmethod
     @abstractmethod
-    def assimilate(state: np.ndarray, state_map: np.ndarray,
+    def assimilate(state: np.ndarray, state_map: np.ndarray, state_map_inverse: np.ndarray, 
                    observations: np.ndarray, observation_type: np.ndarray, reports: np.ndarray,
                    points_in_radius: np.ndarray, weights: np.ndarray, updated: np.ndarray, det: int, rho: float):
         """
@@ -32,7 +32,11 @@ class Algorithm(ABC):
                 number 2 in in feedback files. A loop over all layers of temperature in the state would look like this:
                 for l in range(state_map[2, 0], state_map[0] + state_map[1]). Variables that are not included in our
                 state have values of -1 at the corresponding position of the state_map
-
+ 
+        state_map_inverse:
+                Shape: (size of layers in state, 2). Meaning of the two properties per variable: 0=variable number, 
+                1=model layer.
+ 
         observations:
                 This array will always include all observations. It is the responsibility of the algorithm to select
                 the right ones based on the content of the reports array. Shape: (n-obs, 3). The three values per
@@ -74,53 +78,53 @@ class Algorithm(ABC):
                 multiplicative inflation factor. Default is 1.0.
         """
 
-    @staticmethod
-    @jit("f4[:](f4, f4[:])", nopython=True, nogil=True)
-    def weights_for_gridpoint(localization_radius: float, distance: np.ndarray):
-        """
-        This function is used to calculate a weight for each grid points in the localization radius. It is called from
-        DataAssimilation.run on all affected grid points and the result is forwarded to the assimilate method.
+   # @staticmethod
+@jit("f4[:](f4, f4[:])", nopython=True, nogil=True)
+def weights_for_gridpoint(localization_radius: float, distance: np.ndarray):
+    """
+    This function is used to calculate a weight for each grid points in the localization radius. It is called from
+    DataAssimilation.run on all affected grid points and the result is forwarded to the assimilate method.
 
-        Parameters
-        ----------
-        localization_radius:
-                localization radius in m.
+    Parameters
+    ----------
+    localization_radius:
+            localization radius in m.
 
-        distance:
-                distance in m.
+    distance:
+            distance in m.
 
-        Returns
-        -------
-        value between 0 and 1.
-        """
-        # create an array to the result
-        gcf = np.empty_like(distance)
+    Returns
+    -------
+    value between 0 and 1.
+    """
+    # create an array to the result
+    gcf = np.empty_like(distance)
         
-        # loop over all distances. 
-        for i in range(distance.shape[0]):
-            relative_distance = distance[i]/localization_radius
-            if distance[i] < 1.0:
-                gcf[i] = 1.0
-            elif distance[i] <= localization_radius:
-                gcf[i] = -0.25        * relative_distance**5 \
-                         +0.5         * relative_distance**4 \
-                         +(5.0/8.0)   * relative_distance**3 \
-                         -(5.0/3.0)   * relative_distance**2 \
-                         +1.0
-            elif distance[i] > localization_radius and distance[i] <= 2*localization_radius:
-                gcf[i] = (1.0/12.0)   * relative_distance**5 \
-                         -0.5         * relative_distance**4 \
-                         +(5.0/8.0)   * relative_distance**3 \
-                         +(5.0/3.0)   * relative_distance**2 \
-                         -5           * relative_distance \
-                         +4-(2.0/3.0) / relative_distance
-            else:
-                gcf[i] = 0.0
+    # loop over all distances. 
+    for i in range(distance.shape[0]):
+        relative_distance = distance[i]/localization_radius
+        if distance[i] < 1.0:
+            gcf[i] = 1.0
+        elif distance[i] <= localization_radius:
+            gcf[i] = -0.25        * relative_distance**5 \
+                     +0.5         * relative_distance**4 \
+                     +(5.0/8.0)   * relative_distance**3 \
+                     -(5.0/3.0)   * relative_distance**2 \
+                     +1.0
+        elif distance[i] > localization_radius and distance[i] <= 2*localization_radius:
+            gcf[i] = (1.0/12.0)   * relative_distance**5 \
+                     -0.5         * relative_distance**4 \
+                     +(5.0/8.0)   * relative_distance**3 \
+                     +(5.0/3.0)   * relative_distance**2 \
+                     -5           * relative_distance \
+                     +4-(2.0/3.0) / relative_distance
+        else:
+            gcf[i] = 0.0
 
-            # make sure, that weights do not get negative due to numerical imprecision
-            if gcf[i] < 0:
-                gcf[i] = 0.0
-        return gcf
+        # make sure, that weights do not get negative due to numerical imprecision
+        if gcf[i] < 0:
+            gcf[i] = 0.0
+    return gcf
 
 
 @jit("i4(f4[:,:,:], i4[:,:], i4, i4, f4)", nopython=True, nogil=True)

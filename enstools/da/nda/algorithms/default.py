@@ -5,11 +5,11 @@ import numpy as np
 class Default(Algorithm):
 
     @staticmethod
-    @jit("void(f4[:,:,::1], i4[:,::1], f4[:,::1], i4[:,::1], i4[:,::1], i4[:,::1], f4[:,::1], i1[::1], i4, f4)",
+    @jit("void(f4[:,:,::1], i4[:,::1], i4[:,::1], f4[:,::1], i4[:,::1], i4[:,::1], i4[:,::1], f4[:,::1], i1[::1], i4, f4)",
          nopython=True, nogil=True, parallel=True,
          locals={"i_report": i4, "i_obs": i4, "i_radius": i4, "i_layer": i4, "i_points": i4, "i_cell": i4,
                  "p_equivalent": f4, "denominator": f4, "p": f4})
-    def assimilate(state: np.ndarray, state_map: np.ndarray,
+    def assimilate(state: np.ndarray, state_map: np.ndarray, state_map_inverse: np.ndarray, 
                    observations: np.ndarray, observation_type: np.ndarray, reports: np.ndarray,
                    points_in_radius: np.ndarray, weights: np.ndarray, updated: np.ndarray, det: int, rho: float):
         """

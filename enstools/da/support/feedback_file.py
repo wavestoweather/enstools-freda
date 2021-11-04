@@ -183,7 +183,6 @@ class FeedbackFile:
         m_ncells = m_grid["clon"].shape[0]
         m_clon_deg = m_grid["clon"].values * 180.0 / np.pi
         m_clat_deg = m_grid["clat"].values * 180.0 / np.pi
-
         # make sure that the model data is on the correct grid
         if not m_grid["clon"].shape[0] == model[variables[0]].shape[-1]:
             raise ValueError(f"grid file and model files do not belong together! Cells in grid: {m_grid['clon'].shape[0]}, cells in model file: {model[variables[0]].shape[-1]}!")
@@ -201,13 +200,13 @@ class FeedbackFile:
 
         # create a vertical interpolator for the selected indices
         if levels is not None:
+            if "P" in model:
+                pressure_variable = "P"
+            elif "pres" in model:
+                pressure_variable = "pres"
+            else:
+                raise ValueError("we need a pressure variable in the model file to extract observations on pressure levels. Supported are: pres, P")
             if level_type == LevelType.PRESSURE:
-                if "P" in model:
-                    pressure_variable = "P"
-                elif "pres" in model:
-                    pressure_variable = "pres"
-                else:
-                    raise ValueError("we need a pressure variable in the model file to extract observations on pressure levels. Supported are: pres, P")
                 p = model[pressure_variable][..., m_valid_indices]
                 vert_intpol = model2pressure(p, levels)
             elif level_type == LevelType.MODEL_LEVEL:
@@ -217,6 +216,7 @@ class FeedbackFile:
                 if levels.shape == ():
                     levels = levels.reshape(1)
                 vert_intpol = lambda x: np.take(x, levels, axis=1)
+
 
         # select the requested points from all model variables and interpolate them to requested levels
         variables_per_gridcell = {}
@@ -234,11 +234,12 @@ class FeedbackFile:
 
         # create arrays for observations
         # float32 variables
-        for obs_array in ["obs", "e_o", "level"]:
+        for obs_array in ["obs", "e_o", "level", "plevel"]:
             ds[obs_array] = xr.DataArray(data=np.zeros(o_total_number, dtype=np.float32), name=obs_array, dims={"d_body": o_total_number})
         body_obs = ds["obs"].values
         body_e_o = ds["e_o"].values
         body_level = ds["level"].values
+        body_plevel = ds["plevel"].values
         # int32 variables
         for obs_array in ["varno", "level_typ"]:
             ds[obs_array] = xr.DataArray(data=np.zeros(o_total_number, dtype=np.int32), name=obs_array, dims={"d_body": o_total_number})
@@ -276,6 +277,7 @@ class FeedbackFile:
                 for var in variables:
                     # use only values that are not nan
                     value = variables_per_gridcell[var].values[0, level, cell]
+                    pvalue = variables_per_gridcell[pressure_variable].values[0,level,cell]
                     if np.isnan(value):
                         continue
                     n_obs_in_level += 1
@@ -288,6 +290,7 @@ class FeedbackFile:
                     body_e_o[current_obs] = error[var]
                     body_varno[current_obs] = name2varno[var]
                     body_level[current_obs] = levels[level]
+                    body_plevel[current_obs] = pvalue
                     body_level_typ[current_obs] = level_type.value
                     current_obs += 1
                 if n_obs_in_level > 0:
@@ -322,5 +325,6 @@ class FeedbackFile:
         filename:
                 name of the new file
         """
+    
         self.data.to_netcdf(filename)
         logging.info(f"write all observations to {filename}")
