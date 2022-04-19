@@ -5,11 +5,11 @@ import numpy as np
 class EnKF(Algorithm):
 
     @staticmethod
-    @jit("void(f4[:,:,::1], i4[:,::1], f4[:,::1], i4[:,::1], i4[:,::1], i4[:,::1], f4[:,::1], i1[::1], i4, f4)",
+    @jit("void(f4[:,:,::1], i4[:,::1], i4[:,::1], f4[:,::1], i4[:,::1], i4[:,::1], i4[:,::1], f4[:,::1], i1[::1], i4, f4)",
          nopython=True, nogil=True, parallel=True,
          locals={"i_report": i4, "i_obs": i4, "i_radius": i4, "i_layer": i4, "i_points": i4, "i_cell": i4,
                  "p_equivalent": f4, "denominator": f4, "p": f4})
-    def assimilate(state: np.ndarray, state_map: np.ndarray,
+    def assimilate(state: np.ndarray, state_map: np.ndarray, state_map_inverse: np.ndarray, 
                    observations: np.ndarray, observation_type: np.ndarray, reports: np.ndarray,
                    points_in_radius: np.ndarray, weights: np.ndarray, updated: np.ndarray, det: int, rho: float):
         """
@@ -33,7 +33,8 @@ class EnKF(Algorithm):
 
             # loop over all observations in this report
             for i_obs in range(reports[i_report, 0], reports[i_report, 0] + reports[i_report, 1]):
-              
+                obs_layer = int(observations[i_obs,2])
+                mlevel_obs = state_map_inverse[obs_layer,1]
                 # get model equivalents for the given observation and the mean which is later used for covariances
                 # for observation on model levels, model_equivalent returns just the corresponding gird cell.
                 model_equivalent(state, state_map, grid_index, observations, observation_type, i_obs,
@@ -67,6 +68,7 @@ class EnKF(Algorithm):
                     # on top of each other in the state variable.
                     for i_layer in range(n_varlayer):
                         # calculate covariance between model equivalent and the current location in the state
+                        mlevel_state = state_map_inverse[i_layer,1]
                         p = rho * covariance(state, i_cell, i_layer, deviation_equivalent_mean) * weights[i_points, i_radius]
 
                         # update the state at the current location

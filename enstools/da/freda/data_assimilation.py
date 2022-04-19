@@ -23,7 +23,7 @@ class DataAssimilation:
     """
     Data Assimilation Tool
     """
-    def __init__(self, grid: UnstructuredGrid, localization_radius: float = 500000.0, comm: PETSc.Comm = None, rho: float = 1.0, det: int = 0):
+    def __init__(self, grid: UnstructuredGrid, localization_radius: float = 500000.0, localization_radius_v: float = 5000.0, comm: PETSc.Comm = None, rho: float = 1.0, det: int = 0, obs_inflation: float = 1.0, adap_mult_infl: int = 0, file_name_mean=''):
         """
         Create a new data assimilation context for the given grid.
 
@@ -34,6 +34,9 @@ class DataAssimilation:
 
         localization_radius:
                 radius of localization to be used in the assimilation. Default = 500000.0 m
+
+        localization_radius_v:
+                radius of vertical localization to be used in the data assimilation. Default = 5000.0 m
 
         comm:
                 MPI communicator. If not given, then the communicator of the grid is used.
@@ -58,10 +61,16 @@ class DataAssimilation:
         self.obs_kdtree: KDTree = None
         self.obs_coords: np.ndarray = None
         self.localization_radius: float = localization_radius
+        self.localization_radius_v: float = localization_radius_v
         
         # remaining da settings
         self.rho = rho
         self.det = det
+        self.adap_mult_infl = adap_mult_infl
+        self.file_name_mean = file_name_mean
+        self.inflation_factor = 1.0
+        self.inflation_factor_qv = 1.0
+        self.obs_inflation = 0
 
         # create a kd-tree for all grid points on the current processor
         self.local_kdtree: KDTree = KDTree(self.grid.getLocalArray("coordinates_cartesian"))
@@ -114,10 +123,10 @@ class DataAssimilation:
         log_and_time(f"reading file {expanded_filenames[0]} to get information about the state dimension.", logging.INFO, True, self.comm, 0)
         if onRank0(self.comm):
             ds = read(expanded_filenames[0])
+            if self.file_name_mean is not None:
+            	bg_mean = read(self.file_name_mean)
             # extract height information 
-            self.height_mlevels=read('/dss/dsskcsfs01/pn34ca/pn34ca-dss-0004/Yvonne.Ruckstuhl/DA/da-icon/rundir/001/init-fg_DOM01_ML_0001.nc')['z_ifc'].values[:,0]
-            print("test!!!!!!!!!!!!!!!!!!!")
-            print(self.height_mlevels)
+            self.height_mlevels=read('/dss/dsskcsfs01/pn34ca/pn34ca-dss-0004/Yvonne.Ruckstuhl/DA/data/13km/001/init-fg_DOM01_ML_0001.nc')['z_ifc'].values[:,0]
             # only specific variables or all variables?
             if variables is None:
                 variables = []
@@ -146,8 +155,11 @@ class DataAssimilation:
             state_shape = (self.grid.ncells, layer_start, len(expanded_filenames))
         else:
             state_shape = None
+            bg_mean = None
             self.state_variables = None
         state_shape = self.comm_mpi4py.bcast(state_shape, root=0)
+        if self.file_name_mean is not None:
+            bg_mean = self.comm_mpi4py.bcast(bg_mean, root=0)
         self.state_variables = self.comm_mpi4py.bcast(self.state_variables, root=0)
         self.height_mlevels = self.comm_mpi4py.bcast(self.height_mlevels, root=0)
         log_on_rank(f"creating the state with {len(self.state_variables['__names'])} variables, {len(expanded_filenames)} members and a shape of {state_shape}.", logging.INFO, self.comm, 0)
@@ -161,6 +173,7 @@ class DataAssimilation:
             if ifile + self.mpi_rank < len(expanded_filenames):
                 one_filename = expanded_filenames[ifile + self.mpi_rank]
                 log_and_time(f"reading file {one_filename}", logging.INFO, True, self.comm, 0)
+                #ds = self.inflation_factor**0.5*(read(one_filename)-bg_mean)+bg_mean
                 ds = read(one_filename)
                 rank_has_data = True
             else:
@@ -173,7 +186,13 @@ class DataAssimilation:
             for ivar, varname in enumerate(self.state_variables['__names']):
                 if ds is not None:
                     log_and_time(f"reading variable {varname}", logging.INFO, True, self.comm, -1)
-                    values = ds[varname].values[0, ...].transpose()
+                    if self.file_name_mean is not None:
+                        if varname == "qv" or varname == "gh":
+                            values = (self.inflation_factor_qv**0.5*(ds[varname].values[0, ...]-bg_mean[varname].values[0,...])+bg_mean[varname].values[0,...]).transpose()
+                        else:
+                            values = (self.inflation_factor**0.5*(ds[varname].values[0, ...]-bg_mean[varname].values[0,...])+bg_mean[varname].values[0,...]).transpose()
+                    else:
+                        values = ds[varname].values[0, ...].transpose()
                     log_and_time(f"reading variable {varname}", logging.INFO, False, self.comm, -1)
                 else:
                     values = np.empty(0, dtype=np.float32)
@@ -289,7 +308,7 @@ class DataAssimilation:
             else:
                 one_output_file = os.path.join(output_folder, os.path.basename(one_file))
             base, ext = os.path.splitext(one_output_file)
-            one_output_file = base + ".nc"
+            one_output_file = base + "_analysis.nc"
             if one_output_file in output_files:
                 raise IOError("names of output files are not unique. Try to use the member_folder argument!")
             output_files.append(one_output_file)
@@ -355,15 +374,26 @@ class DataAssimilation:
         # read the input file on the first rank and distribute numpy arrays to all ranks
         log_and_time(f"DataAssimilation.load_observations({filename})", logging.INFO, True, self.comm, 0, False)
         log_and_time(f"loading and distributing data", logging.INFO, True, self.comm, 0, False)
+        inflation_factor = np.ones(1)
+        inflation_factor_qv = np.ones(1)
         if onRank0(self.comm):
             ff = read(filename)
+            if self.adap_mult_infl == 1:
+                inflation_factor[0] = (ff.attrs["innovation"]/ff.attrs["trace_P"])[0] 
+                inflation_factor_qv[0] = (ff.attrs["innovation_qv"]/ff.attrs["trace_P_qv"])[0]
             variables = {}
             for var in ff.variables:
                 variables[var] = (ff[var].shape, ff[var].dtype)
         else:
             ff = None
             variables = None
+
         variables = self.comm_mpi4py.bcast(variables)
+        if self.adap_mult_infl == 1:
+            inflation_factor = self.comm_mpi4py.bcast(inflation_factor)
+            inflation_factor_qv = self.comm_mpi4py.bcast(inflation_factor_qv)
+        self.inflation_factor = inflation_factor[0]
+        self.inflation_factor_qv = inflation_factor_qv[0]
         for var in variables:
             if onRank0(self.comm):
                 self.observations[var] = ff[var].values
@@ -393,9 +423,10 @@ class DataAssimilation:
         if not onRank0(self.comm):
             self.observations["report_sets"] = np.empty(report_set_sizes[0], dtype=np.int32)
             self.observations["report_set_indices"] = np.empty(report_set_sizes[1], dtype=np.int32)
+           
         self.comm_mpi4py.Bcast(self.observations["report_sets"], root=0)
         self.comm_mpi4py.Bcast(self.observations["report_set_indices"], root=0)
-
+      
         log_and_time(f"splitting observation in non-overlapping subsets", logging.INFO, False, self.comm, 0, True)
         log_and_time(f"DataAssimilation.load_observations({filename})", logging.INFO, False, self.comm, 0, False)
 
@@ -630,23 +661,30 @@ class DataAssimilation:
                 varno = feedback_file.tables["name2varno"][one_var]
                 state_map[varno, 0] = self.state_variables[one_var]["layer_start"]
                 state_map[varno, 1] = self.state_variables[one_var]["layer_size"]
-        # create the inverse of state_map
+        
+	# create the inverse of state_map
         index = np.argmax(state_map[:,0])
         state_map_inverse = np.empty((state_map[index,0]+state_map[index,1],2) , dtype=np.int32)
         state_map_inverse[:] = -1
         for one_var in self.state_variables["__names"]:
             if one_var in feedback_file.tables["name2varno"]:
                 varno = feedback_file.tables["name2varno"][one_var]
-                #print('[varno,layer_start,layer_size]: ',[varno,state_map[varno,0],state_map[varno,1]])
                 state_map_inverse[state_map[varno,0]:state_map[varno,0]+state_map[varno,1],0] = varno
                 state_map_inverse[state_map[varno,0]:state_map[varno,0]+state_map[varno,1],1] = np.arange(0,state_map[varno,1], dtype=np.int32)
-        # array for updated indices of the state
+        	
+	# array for updated indices of the state
         updated = np.empty(self.grid.getLocalArray("state").shape[0], dtype=np.int8)
 
         # the coordinates of the local part of the grid
         coords = self.grid.getLocalArray("coordinates_cartesian")
         clon = self.grid.getLocalArray("clon")
         clat = self.grid.getLocalArray("clat")
+
+        #multiplicative inflation
+        a = (1.0-self.rho)/(self.height_mlevels[0]-self.height_mlevels[-1])
+        b = self.rho-a*self.height_mlevels[-1]
+        multiplicative_inflation = a*self.height_mlevels+b
+        print('rho ',multiplicative_inflation)
 
         # here we loop over all non-overlapping sets of reports created before by _calculate_non_overlapping_reports
         for iset in range(self.observations["report_sets"].shape[0]):
@@ -697,13 +735,16 @@ class DataAssimilation:
                     affected_points[one_radius, _affected_points[one_radius].shape[0]:] = -1
 
                 # calculate weights of each affected point
-                weights_v = np.zeros((len(self.height_mlevels),len(self.height_mlevels)),dtype=np.float32)
-                for i_level in range(len(self.height_mlevels)):
-                    for j_level in range(i_level+1):
-                        dist = np.empty(1, dtype=np.float32)
-                        dist[0] = np.absolute(self.height_mlevels[i_level]-self.height_mlevels[j_level])
-                        weights_v[i_level,j_level] = algorithm.weights_for_gridpoint(5,dist)
-                        weights_v[j_level,i_level] = weights_v[i_level,j_level]
+               
+                weights_v = np.ones((len(self.height_mlevels),len(self.height_mlevels)),dtype=np.float32)
+                if self.localization_radius_v > 0:
+                    for i_level in range(len(self.height_mlevels)):
+                        for j_level in range(i_level+1):
+                            dist = np.empty(1, dtype=np.float32)
+                            dist[0] = np.absolute(self.height_mlevels[i_level]-self.height_mlevels[j_level])
+                            weights_v[i_level,j_level] = algorithm.weights_for_gridpoint(self.localization_radius_v,dist)
+                            weights_v[j_level,i_level] = weights_v[i_level,j_level]
+                #        print('[i,j,height_i,height_j,dist,weight]',[i_level,j_level,self.height_mlevels[i_level],self.height_mlevels[j_level],dist[0],weights_v[i_level,j_level]])
                 weights_h = np.zeros(affected_points.shape, dtype=np.float32)
                 for one_radius in range(len(_affected_points)):
                     lon_of_points = clon[_affected_points[one_radius]]
@@ -724,8 +765,11 @@ class DataAssimilation:
             # only call the assimilate function if we have anything to do. It is possible the one rank is already ready
             # while another rank is still processing.
             updated[:] = 0
+            if onRank0(self.comm):
+                print("INFLATION FACTOR = ",self.inflation_factor)
+                print("INFLATION FACTOR_QV = ",self.inflation_factor_qv)
             if unique_indices.shape[0] > 0:
-                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, state_map_inverse, observations, observations_type, reports, affected_points, weights_h, weights_v, updated, self.det, self.rho)
+                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, state_map_inverse, observations, observations_type, reports, affected_points, weights_h, weights_v, updated, self.det, multiplicative_inflation, self.obs_inflation)
             self.comm.barrier()
             log_and_time(f"{algorithm.__class__.__name__}.assimilate()", logging.INFO, False, self.comm, 0, False)
 
