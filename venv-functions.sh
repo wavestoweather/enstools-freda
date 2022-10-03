@@ -27,3 +27,13 @@ function load_modules() {
     esac
     module list
 }
+
+# activate mamba without modifying the .bashrc
+function activate_mamba() {
+    if [[ ! -f $PWD/venv/etc/profile.d/micromamba.sh ]] ; then 
+        mkdir -p $PWD/venv/etc/profile.d
+        $PWD/venv/micromamba shell hook --shell bash --prefix $PWD/venv > $PWD/venv/etc/profile.d/micromamba.sh
+    fi
+    source $PWD/venv/etc/profile.d/micromamba.sh
+    export MAMBA_ROOT_PREFIX=$PWD/venv
+}

@@ -34,7 +34,7 @@ setup(name="enstools-nda",
       namespace_packages=['enstools'],
       install_requires=["mpi4py",
                 "petsc4py",
-                "sklearn"],
+                "scikit-learn"],
       entry_points={
           'console_scripts': ['nda-cli=enstools.da.nda.cli:main'],
       },

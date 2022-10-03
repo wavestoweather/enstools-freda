@@ -7,6 +7,7 @@ from enstools.io.reader import expand_file_pattern
 from enstools.da.nda import DataAssimilation
 from enstools.io import read
 from enstools.da.nda.algorithms.default import Default
+from enstools.da.nda.algorithms.debug import DebugDatatypes
 from enstools.mpi import onRank0
 from enstools.mpi.grids import UnstructuredGrid
 from enstools.core.tempdir import TempDir
@@ -19,6 +20,9 @@ def da(grid_with_overlap: UnstructuredGrid, ff_file: str, comm):
     """
     da = DataAssimilation(grid_with_overlap)
     da.load_state("/archive/meteo/external-models/dwd/icon/oper/icon_oper_eps_gridded-global_rolling/202002/20200201T00/igaf2020020100.m00[1-5].grb")
+
+    # make sure, that the state is a 32bit variable
+    assert da.get_state_variable('T').dtype == np.float32
 
     # compare uploaded data with input files
     if onRank0(comm):
@@ -126,6 +130,15 @@ def test_save_state(da: DataAssimilation, get_tmpdir: TempDir, comm):
             assert os.path.exists(new_file_in_folder)
 
     comm.barrier()
+
+
+def test_run_datatypes(da: DataAssimilation, comm):
+    """
+    run the actual data assimilation with the dummy algorithm.
+    """
+    # create an instance of the algorithm
+    test = DebugDatatypes()
+    da.run(test)
 
 
 def test_run_dummy(da: DataAssimilation, comm):

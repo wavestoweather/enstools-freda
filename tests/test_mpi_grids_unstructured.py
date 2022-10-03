@@ -191,7 +191,7 @@ def test_scatter(grid_with_overlap: UnstructuredGrid, comm):
     test scattering of data from one process holding the full field to all others.
     """
     # create a new numpy variable and a new PETSc variable. Both get the same data to scatter.
-    grid_with_overlap.addVariable("scatter1", shape=(grid_with_overlap.ncells,))
+    grid_with_overlap.addVariable("scatter1", shape=(grid_with_overlap.ncells,), dtype=PETSc.RealType)
     grid_with_overlap.addVariablePETSc("scatter2")
 
     # generate random data and distribute is in both methods
@@ -201,7 +201,9 @@ def test_scatter(grid_with_overlap: UnstructuredGrid, comm):
     grid_with_overlap.scatterData("scatter2", noise)
 
     # compare the owned and ghost data
-    np.testing.assert_array_equal(grid_with_overlap.getLocalArray("scatter1"), grid_with_overlap.getLocalArray("scatter2"))
+    scatter1 = grid_with_overlap.getLocalArray("scatter1")
+    scatter2 = grid_with_overlap.getLocalArray("scatter2")
+    np.testing.assert_array_equal(scatter1, scatter2)
 
     # create a variable with more dimensions
     if onRank0(comm):
@@ -210,7 +212,7 @@ def test_scatter(grid_with_overlap: UnstructuredGrid, comm):
             noiseNd[:, i] = noise + i
     else:
         noiseNd = np.empty(0, dtype=PETSc.RealType)
-    grid_with_overlap.addVariable("scatter3", values=noiseNd, update_ghost=True)
+    grid_with_overlap.addVariable("scatter3", values=noiseNd, update_ghost=True, dtype=PETSc.RealType)
 
     # use the content of scatter1 to check second dimension of scatter3
     for i in range(17):
@@ -226,7 +228,7 @@ def test_gather(grid_with_overlap: UnstructuredGrid, comm):
     """
     # create a new numpy variable and scatter it at first to all processes
     noise = np.require(np.random.rand(grid_with_overlap.ncells), dtype=PETSc.RealType)
-    grid_with_overlap.addVariable("gather1", values=noise)
+    grid_with_overlap.addVariable("gather1", values=noise, dtype=PETSc.RealType)
 
     # gather the data back and test the result
     gathered = grid_with_overlap.gatherData("gather1")
@@ -250,7 +252,7 @@ def test_gather(grid_with_overlap: UnstructuredGrid, comm):
 
     # distribute an multidimensional array and gather it back
     noiseNd = np.require(np.random.rand(grid_with_overlap.ncells, 3, 5), dtype=PETSc.RealType)
-    grid_with_overlap.addVariable("gather2", values=noiseNd)
+    grid_with_overlap.addVariable("gather2", values=noiseNd, dtype=PETSc.RealType)
 
     gathered2 = grid_with_overlap.gatherData("gather2")
     if onRank0(comm):
@@ -267,10 +269,10 @@ def test_scatter_and_gather_partial(grid_with_overlap: UnstructuredGrid, comm):
     noise = np.require(np.random.rand(grid_with_overlap.ncells, 3, 4), dtype=PETSc.RealType)
 
     # upload it at once as reference
-    grid_with_overlap.addVariable("sg1", values=noise, update_ghost=True)
+    grid_with_overlap.addVariable("sg1", values=noise, update_ghost=True, dtype=PETSc.RealType)
 
     # add the same variable another time. This time, it all be uploaded piecewise
-    grid_with_overlap.addVariable("sg2", shape=noise.shape)
+    grid_with_overlap.addVariable("sg2", shape=noise.shape, dtype=PETSc.RealType)
     for i in range(3):
         grid_with_overlap.scatterData("sg2", values=noise[:, i, ...], part=(i, ...))
     grid_with_overlap.updateGhost("sg2")

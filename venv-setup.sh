@@ -13,7 +13,7 @@ fi
 
 # create a new environment if not yet done
 if [[ ! -d venv ]] ; then
-    python3 -m venv --prompt nda venv
+    python3 -m venv --prompt freda venv
 fi
 
 # activate the new environement
@@ -39,20 +39,20 @@ pip install -r requirements.txt
 
 # install jupyter kernel
 module load python
-ipython kernel install --user --name enstools-nda
+ipython kernel install --user --name enstools-freda
 module unload python
 
 # override settings to use the venv-kernel.sh script
-cat > ${HOME}/.local/share/jupyter/kernels/enstools-nda/kernel.json << EOF
+cat > ${HOME}/.local/share/jupyter/kernels/enstools-freda/kernel.json << EOF
 {
  "argv": [
   "${PWD}/venv-kernel.sh",
   "{connection_file}"
  ],
- "display_name": "enstools-nda",
+ "display_name": "enstools-freda",
  "language": "python"
 }
 EOF
 
-# install the nda-package editable into the environment
+# install the freda-package editable into the environment
 pip install -e .
