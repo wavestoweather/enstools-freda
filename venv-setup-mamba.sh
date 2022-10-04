@@ -6,9 +6,13 @@ source venv-functions.sh
 EC_VERSION=2.26.0
 EC_MINOR_VERSION=2
 
+# unset any old MAMBA env vars
+unset MAMBA_ROOT_PREFIX
+unset MAMBA_EXE
+
 # install all dependencies using mamba
 # install micromamba
-if [[ ! -f micromamba ]] ; then
+if [[ ! -f venv/micromamba ]] ; then
     ARCH=$(uname -m)
     OS=$(uname)
 
@@ -36,13 +40,6 @@ if [[ ! -f micromamba ]] ; then
     curl -Ls https://micro.mamba.pm/api/micromamba/$PLATFORM-$ARCH/latest | tar -xvj -C $PWD/venv --strip-components=1 bin/micromamba
 fi
 
-# install dependencies in new mamba environment
-if [[ ! -d venv/envs/freda ]] ; then
-    activate_mamba
-    micromamba create -c conda-forge -n freda
-    micromamba install -c conda-forge -n freda -f requirements-mamba.txt eccodes=$EC_VERSION --yes
-fi
-
 # install dwd grib definitions
 if [[ ! -d venv/eccodes_definitions ]] ; then
     # download file from DWD open data
@@ -56,4 +53,17 @@ if [[ ! -d venv/eccodes_definitions ]] ; then
     mkdir -p venv/eccodes_definitions
     tar --directory venv/eccodes_definitions --strip-components=1 -xf venv/eccodes_definitions.tar.bz2
     rm venv/eccodes_definitions.tar.bz2
+fi
+
+# install dependencies in new mamba environment
+if [[ ! -d venv/envs/freda ]] ; then
+    activate_mamba
+    micromamba create -c conda-forge -n freda
+    micromamba install -c conda-forge -n freda -f requirements-mamba.txt eccodes=$EC_VERSION --yes
+fi
+
+# install freda
+if [[ ! -d venv/envs/freda/bin/nda-cli ]] ; then
+    activate_mamba
+    venv/envs/freda/bin/pip install -e .
 fi

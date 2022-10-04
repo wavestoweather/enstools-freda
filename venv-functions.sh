@@ -36,4 +36,5 @@ function activate_mamba() {
     fi
     source $PWD/venv/etc/profile.d/micromamba.sh
     export MAMBA_ROOT_PREFIX=$PWD/venv
+    export MAMBA_EXE=$PWD/venv/micromamba
 }
