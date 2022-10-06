@@ -176,6 +176,7 @@ def ff(args):
                                              error=error_dict,
                                              lon=lons,
                                              lat=lats,
+                                             seed=args.seed,
                                              levels=np.asarray(levels),
                                              level_type=level_type,
                                              perfect=args.perfect)
@@ -227,6 +228,7 @@ def main():
     parser_ff.add_argument("--obs-lon", help="longitudinal coordinates of the observations in degrees east. Supported are comma-separated values as well as ranges in the format start:stop:step. As usual for ranges in python, the stop value is not included.")
     parser_ff.add_argument("--obs-lat", help="latitudinal coordinates of the observations in degrees north, formated as --obs-lon.")
     parser_ff.add_argument("--obs-lat-lines", type=int, help="number of latidute lines between pole and equator for obs-loc-type reduced.")
+    parser_ff.add_argument("--seed", type=int, help="seed number for obs generation")
     parser_ff.add_argument("--variables", required=True, nargs="+", help="names of variables. The names must match names from the source file.")
     parser_ff.add_argument("--errors", required=True, nargs="+", help="observation error for each variable. Format: name:error.")
     parser_ff.add_argument("--perfect", required=False, action='store_true', help="if given, no random error is added to the observations.")

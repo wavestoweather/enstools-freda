@@ -357,7 +357,7 @@ class DataAssimilation:
                 if not os.path.isdir(os.path.dirname(one_filename)):
                     os.makedirs(os.path.dirname(one_filename))
                 # actually store the file on disk
-                ds.to_netcdf(one_filename, engine="scipy")
+                ds.to_netcdf(one_filename, engine="h5netcdf")
                 log_and_time(f"writing file {one_filename}", logging.INFO, False, self.comm, self.mpi_rank)
 
         log_and_time(f"DataAssimilation.save_state", logging.INFO, False, self.comm, 0, True)

@@ -139,7 +139,7 @@ class FeedbackFile:
     def add_observation_from_model_output(self, model_file: Union[str, List[str]], 
                                           model_equivalent: Union[str, List[str]], model_spread: Union[str, List[str]], 
                                           variables: List[str], error: Dict[str, float],
-                                          lon: np.ndarray, lat: np.ndarray, levels: np.ndarray = None,
+                                          lon: np.ndarray, lat: np.ndarray, seed: int, levels: np.ndarray = None,
                                           level_type: LevelType = LevelType.PRESSURE, model_grid: str = None,
                                           perfect: bool = False):
         """
@@ -182,6 +182,7 @@ class FeedbackFile:
         """
         # read the model files and check the content.
         model = read(model_file)
+        #np.random.seed(seed)
         if model_equivalent is not None:
             equivalent = read(model_equivalent)
             spread = read(model_spread)
@@ -240,17 +241,41 @@ class FeedbackFile:
         trace_P = 0
         innovation_qv = 0
         trace_P_qv = 0
-       
+
+        b1       =   610.78
+        b2w      =    17.2693882
+        b3       =   273.16
+        b4w      =    35.86
+        r_d      =   287.05 # gas constant for dry air
+        r_v      =   461.51 # gas constant for water vapor
+        rdv      = r_d / r_v
+        o_m_rdv  = 1.0 - rdv
+
+        if ("gh" not in variables) and ("qv" not in variables):
+            if model_equivalent is not None:
+                if 'qv' in equivalent.keys():
+                    data = model['qv'][...,m_valid_indices]
+                    data_equivalent = equivalent['qv'][..., m_valid_indices]
+                    data_spread = spread['qv'][..., m_valid_indices]
+                else:
+                    data_equivalent = equivalent['gh'][..., m_valid_indices]
+                    data_spread = spread['gh'][..., m_valid_indices]
+                    zpvs = b1*np.exp( b2w*(model['temp']-b3) / (model['temp']-b4w) )
+                    zqvs = rdv*zpvs / (model['pres'] - o_m_rdv*zpvs)
+                    data = (model['qv']/zqvs * 100.0)[...,m_valid_indices]
+            
+                data_qv = data.copy()
+                data = vert_intpol(data)
+                
+                levels_qv = levels[levels>80]
+                vert_intpol_qv = lambda x: np.take(x, levels_qv, axis=1)
+                data_qv = vert_intpol_qv(data_qv)
+                data_equivalent = vert_intpol_qv(data_equivalent)
+                data_spread = vert_intpol_qv(data_spread)
+                innovation_qv += np.sum((data_qv.values - data_equivalent.values)**2)
+                trace_P_qv += np.sum(data_spread.values**2)
         for one_var in variables:
             if one_var == "gh":
-                b1       =   610.78
-                b2w      =    17.2693882
-                b3       =   273.16
-                b4w      =    35.86
-                r_d      =   287.05 # gas constant for dry air
-                r_v      =   461.51 # gas constant for water vapor
-                rdv      = r_d / r_v
-                o_m_rdv  = 1.0 - rdv
                 zpvs = b1*np.exp( b2w*(model['temp']-b3) / (model['temp']-b4w) )
                 zqvs = rdv*zpvs / (model['pres'] - o_m_rdv*zpvs)
                 data = (model['qv']/zqvs * 100.0)[...,m_valid_indices]
@@ -329,6 +354,7 @@ class FeedbackFile:
             if not var in error:
                 error[var] = 0.0
 
+        
         # create reports from all observations at one gridpoint
         current_obs = 0
         offset = self.data.attrs["n_body"]
@@ -349,6 +375,9 @@ class FeedbackFile:
                     if perfect:
                         body_obs[current_obs] = value
                     else:
+                        key = hash(f"cycle:{seed}level:{level}cell:{cell}var:{var}")
+                        print(key)
+                        np.random.seed(key%(2**32))
                         body_obs[current_obs] = value + np.random.normal(0, error[var])
                     body_e_o[current_obs] = error[var]
                     body_varno[current_obs] = name2varno[var]
