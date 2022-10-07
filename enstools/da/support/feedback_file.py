@@ -250,14 +250,15 @@ class FeedbackFile:
         r_v      =   461.51 # gas constant for water vapor
         rdv      = r_d / r_v
         o_m_rdv  = 1.0 - rdv
-
+         
+        # if neither qv nor gh is observed but is updated, the inflation factor should still be calculated  
         if ("gh" not in variables) and ("qv" not in variables):
             if model_equivalent is not None:
                 if 'qv' in equivalent.keys():
                     data = model['qv'][...,m_valid_indices]
                     data_equivalent = equivalent['qv'][..., m_valid_indices]
                     data_spread = spread['qv'][..., m_valid_indices]
-                else:
+                elif 'gh' in equivalent.keys():
                     data_equivalent = equivalent['gh'][..., m_valid_indices]
                     data_spread = spread['gh'][..., m_valid_indices]
                     zpvs = b1*np.exp( b2w*(model['temp']-b3) / (model['temp']-b4w) )
@@ -281,14 +282,7 @@ class FeedbackFile:
                 data = (model['qv']/zqvs * 100.0)[...,m_valid_indices]
                 
                 if model_equivalent is not None: 
-                #zpvs = b1*exp( b2w*(equivalent['temp']-b3) / (equivalent['temp']-b4w) )
-                #zqvs = rdv*zpvs / (equivalent['pres'] - o_m_rdv*zpvs)
-                #data_equivalent = (equivalent['qv']/zqvs * 100.0)[...,m_valid_indices]
                     data_equivalent = equivalent['gh'][..., m_valid_indices]
-                
-                #zpvs = b1*exp( b2w*(spread['temp']-b3) / (spread['temp']-b4w) )
-                #zqvs = rdv*zpvs / (spread['pres'] - o_m_rdv*zpvs)
-                #data_spread = (spread['qv']/zqvs * 100.0)[...,m_valid_indices]
                     data_spread = spread['gh'][..., m_valid_indices]
             else:
                 data = model[one_var][..., m_valid_indices]
@@ -376,7 +370,6 @@ class FeedbackFile:
                         body_obs[current_obs] = value
                     else:
                         key = hash(f"cycle:{seed}level:{level}cell:{cell}var:{var}")
-                        print(key)
                         np.random.seed(key%(2**32))
                         body_obs[current_obs] = value + np.random.normal(0, error[var])
                     body_e_o[current_obs] = error[var]

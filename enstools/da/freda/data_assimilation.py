@@ -126,7 +126,7 @@ class DataAssimilation:
             if self.file_name_mean is not None:
             	bg_mean = read(self.file_name_mean)
             # extract height information 
-            self.height_mlevels=read('/dss/dsskcsfs01/pn34ca/pn34ca-dss-0004/Yvonne.Ruckstuhl/DA/data/13km/001/init-fg_DOM01_ML_0001.nc')['z_ifc'].values[:,0]
+            self.height_mlevels=ds['z_ifc'].values[:,0]
             # only specific variables or all variables?
             if variables is None:
                 variables = []
@@ -684,7 +684,6 @@ class DataAssimilation:
         a = (1.0-self.rho)/(self.height_mlevels[0]-self.height_mlevels[-1])
         b = self.rho-a*self.height_mlevels[-1]
         multiplicative_inflation = a*self.height_mlevels+b
-        print('rho ',multiplicative_inflation)
 
         # here we loop over all non-overlapping sets of reports created before by _calculate_non_overlapping_reports
         for iset in range(self.observations["report_sets"].shape[0]):
@@ -744,7 +743,6 @@ class DataAssimilation:
                             dist[0] = np.absolute(self.height_mlevels[i_level]-self.height_mlevels[j_level])
                             weights_v[i_level,j_level] = algorithm.weights_for_gridpoint(self.localization_radius_v,dist)
                             weights_v[j_level,i_level] = weights_v[i_level,j_level]
-                #        print('[i,j,height_i,height_j,dist,weight]',[i_level,j_level,self.height_mlevels[i_level],self.height_mlevels[j_level],dist[0],weights_v[i_level,j_level]])
                 weights_h = np.zeros(affected_points.shape, dtype=np.float32)
                 for one_radius in range(len(_affected_points)):
                     lon_of_points = clon[_affected_points[one_radius]]
