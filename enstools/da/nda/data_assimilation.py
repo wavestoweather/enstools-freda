@@ -147,7 +147,7 @@ class DataAssimilation:
         log_on_rank(f"creating the state with {len(self.state_variables['__names'])} variables, {len(expanded_filenames)} members and a shape of {state_shape}.", logging.INFO, self.comm, 0)
 
         # create the state variable
-        self.grid.addVariable("state", shape=state_shape)
+        self.grid.addVariable("state", shape=state_shape, dtype=np.float32)
         log_and_time(f"reading file {expanded_filenames[0]} to get information about the state dimension.", logging.INFO, False, self.comm, 0)
 
         # loop over all files. Every rank reads one files
@@ -170,7 +170,7 @@ class DataAssimilation:
                     values = ds[varname].values[0, ...].transpose()
                     log_and_time(f"reading variable {varname}", logging.INFO, False, self.comm, -1)
                 else:
-                    values = np.empty(0, PETSc.RealType)
+                    values = np.empty(0, dtype=np.float32)
 
                 # for now, upload only one variable at a time.
                 for rank in range(self.mpi_size):
@@ -187,7 +187,7 @@ class DataAssimilation:
                     if rank == self.mpi_rank:
                         self.grid.scatterData("state", values=values, source=rank, part=part)
                     else:
-                        self.grid.scatterData("state", values=np.empty(0, PETSc.RealType), source=rank, part=part)
+                        self.grid.scatterData("state", values=np.empty(0, dtype=np.float32), source=rank, part=part)
 
             if one_filename is not None:
                 log_and_time(f"reading file {one_filename}", logging.INFO, False, self.comm, 0)
@@ -398,6 +398,9 @@ class DataAssimilation:
         Create sets of reports that are not overlapping. The result will be stored in self.observations["report_sets"]
         and self.observations["report_set_indices"].
         """
+        # reference to kdtree without 'self' for usage in numba object code.
+        obs_kdtree = self.obs_kdtree
+
         # define helper functions
         def __get_obs_in_radius(coords: np.ndarray, radius: float, neighbours: np.ndarray) -> int:
             """
@@ -418,7 +421,7 @@ class DataAssimilation:
             -------
             number of values stored in neighbours
             """
-            indices = self.obs_kdtree.query_radius(coords, r=radius)
+            indices = obs_kdtree.query_radius(coords, r=radius)
             neighbours[:indices[0].size] = indices[0]
             return indices[0].size
 
@@ -686,7 +689,7 @@ class DataAssimilation:
                     dist = distance(clat[unique_indices[one_radius]],
                                     lat_of_points,
                                     clon[unique_indices[one_radius]],
-                                    lon_of_points)
+                                    lon_of_points).astype(np.float32, copy=False)
                     weigths[one_radius, :_affected_points[one_radius].shape[0]] = \
                         algorithm.weights_for_gridpoint(self.localization_radius, dist)
             else:

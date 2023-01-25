@@ -2,7 +2,11 @@
 set -e
 
 # use the python environement
-source venv-activate.sh
+if [[ -f venv/etc/profile.d/micromamba.sh ]] ; then
+    source venv-activate-mamba.sh
+else
+    source venv-activate.sh
+fi
 
 # at LRZ, we need to start MPI processes be forking to run tests on the login node
 if [[ $(get_site) == "lrz.de" ]] ; then

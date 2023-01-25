@@ -13,35 +13,46 @@ fi
 
 # create a new environment if not yet done
 if [[ ! -d venv ]] ; then
-    # use the python module only to create the virtual environement
-    module load python
-    python3 -m venv --system-site-packages --prompt nda venv
-    module unload python
+    python3 -m venv --prompt freda venv
 fi
 
 # activate the new environement
 source venv/bin/activate
 
+# are we using intel compilers?
+if which icc &> /dev/null ; then
+    echo "INFO: using intel compilers!"
+    export CC=icc
+    export CXX=icpc
+    export FC=ifort
+    export MPICC=mpiicc
+    export MPICXX=mpiicpc
+    export MPIF90=mpiifort
+fi
+
 # install all requirements
-pip install --upgrade pip
+pip install --upgrade pip wheel
+pip install 'numpy<1.21.0'
+pip install --no-binary :all: mpi4py
+export CFLAGS="-DACCEPT_USE_OF_DEPRECATED_PROJ_API_H"
 pip install -r requirements.txt
 
 # install jupyter kernel
 module load python
-ipython kernel install --user --name enstools-nda
+ipython kernel install --user --name enstools-freda
 module unload python
 
 # override settings to use the venv-kernel.sh script
-cat > ${HOME}/.local/share/jupyter/kernels/enstools-nda/kernel.json << EOF
+cat > ${HOME}/.local/share/jupyter/kernels/enstools-freda/kernel.json << EOF
 {
  "argv": [
   "${PWD}/venv-kernel.sh",
   "{connection_file}"
  ],
- "display_name": "enstools-nda",
+ "display_name": "enstools-freda",
  "language": "python"
 }
 EOF
 
-# install the nda-package editable into the environment
+# install the freda-package editable into the environment
 pip install -e .

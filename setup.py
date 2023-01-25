@@ -32,9 +32,11 @@ setup(name="enstools-nda",
       author_email="robert.redl@lmu.de",
       packages=["enstools.da", "enstools.mpi"],
       namespace_packages=['enstools'],
-      requires=["mpi4py",
+      install_requires=[
+                "enstools",
+                "mpi4py",
                 "petsc4py",
-                "sklearn"],
+                "scikit-learn"],
       entry_points={
           'console_scripts': ['nda-cli=enstools.da.nda.cli:main'],
       },

@@ -14,7 +14,6 @@ matplotlib
 netCDF4
 scipy
 pytest
-mpi4py --no-binary=mpi4py
+mpi4py
 ipykernel
-skyfield
-git+https://gitlab.com/petsc/petsc.git@v3.14.1#subdirectory=src/binding/petsc4py
+petsc4py 

@@ -21,34 +21,28 @@ class Default(Algorithm):
         n_inv = 1. / (n_ens - 1)
         equivalent = np.empty(n_ens, dtype=np.float32)
         deviation_equivalent_mean = np.empty(n_ens, dtype=np.float32)
-        innovation = np.empty(n_ens, dtype=np.float32)
-        random_error = np.empty(n_ens-det, dtype=np.float32)
-      
+    
         # observations are processed one by one in the order that they are listed in the reports array
         for i_report in range(reports.shape[0]):
-           
             # all observations in this report are located at this index within the local part of the grid.
             grid_index = reports[i_report, 2]
             assert grid_index != -1
 
             # loop over all observations in this report
             for i_obs in range(reports[i_report, 0], reports[i_report, 0] + reports[i_report, 1]):
-              
+            
                 # get model equivalents for the given observation and the mean which is later used for covariances
                 # for observation on model levels, model_equivalent returns just the corresponding gird cell.
-                model_equivalent(state, state_map, grid_index, observations, observation_type, i_obs,
+                equivalent_mean = model_equivalent(state, state_map, grid_index, observations, observation_type, i_obs,
                                  equivalent, deviation_equivalent_mean)
 
                 # calculate innovation from observation value[i_obs, 0] and observation error[i_obs, 0]
-                random_error[:] = np.random.normal(0, observations[i_obs, 1], n_ens-det)
-                innovation[det:] = observations[i_obs, 0] + random_error - equivalent[det:]
-                if det == 1:
-                    innovation[0] = observations[i_obs, 0] - equivalent[0]
-
+                innovation = observations[i_obs, 0] - equivalent_mean
+               
                 # calculate variance of model equivalent
                 p_equivalent = rho*np.sum(deviation_equivalent_mean**2) * n_inv
                 denominator = 1.0 / (p_equivalent + observations[i_obs, 1]**2)
-
+                denominator_ens = 1.0 + (observations[i_obs, 1]**2*denominator)**0.5
                 # loop over all grid cells and all variables that are within the localization radius
                 # This loop runs in parallel if NUMBA_NUM_THREADS is larger than 1.
                 i_points = reports[i_report, 3]
@@ -71,4 +65,4 @@ class Default(Algorithm):
 
                         # update the state at the current location
                         for i_ens in range(n_ens):
-                            state[i_cell, i_layer, i_ens] += p * denominator * innovation[i_ens]
+                            state[i_cell, i_layer, i_ens] += p * denominator * (innovation - deviation_equivalent_mean[i_ens] / denominator_ens)
