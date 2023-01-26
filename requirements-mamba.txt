@@ -17,3 +17,5 @@ pytest
 mpi4py
 ipykernel
 petsc4py 
+skyfield
+ipympl
