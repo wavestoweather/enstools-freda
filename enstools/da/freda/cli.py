@@ -5,7 +5,7 @@ from enstools.da.support import FeedbackFile, LevelType
 from enstools.mpi import init_petsc
 from enstools.mpi.logging import log_on_rank, log_and_time
 from enstools.mpi.grids import UnstructuredGrid
-from enstools.da.nda import DataAssimilation, Algorithm
+from enstools.da.freda import DataAssimilation, Algorithm
 from enstools.io import read
 import numpy as np
 import argparse

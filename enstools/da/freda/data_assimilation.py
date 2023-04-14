@@ -2,7 +2,7 @@
 Implementation for the NDA
 """
 from enstools.misc import spherical2cartesian, distance
-from enstools.da.nda.algorithms import Algorithm
+from enstools.da.freda.algorithms import Algorithm
 from enstools.da.support import feedback_file
 from enstools.mpi import onRank0, isGt1
 from enstools.mpi.logging import log_and_time, log_on_rank
@@ -592,7 +592,7 @@ class DataAssimilation:
         Parameters
         ----------
         algorithm:
-                the class or an instance of a class that implement enstools.da.nda.Algorithm.
+                the class or an instance of a class that implement enstools.da.freda.Algorithm.
         """
         # create an instance of the algorithm argument if not done outside
         if inspect.isclass(algorithm):

@@ -13,7 +13,7 @@ def get_version():
     str:
             version string
     """
-    with open("enstools/da/nda/__init__.py") as f:
+    with open("enstools/da/freda/__init__.py") as f:
         for line in f:
             match = re.search('__version__\s*=\s*"([a-zA-Z0-9_.]+)"', line)
             if match is not None:
@@ -26,7 +26,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "--get-version":
     exit()
 
 # perform the actual install operation
-setup(name="enstools-nda",
+setup(name="enstools-freda",
       version=get_version(),
       author="Robert Redl and Yvonne Ruckstuhl",
       author_email="robert.redl@lmu.de",
@@ -38,7 +38,7 @@ setup(name="enstools-nda",
                 "petsc4py",
                 "scikit-learn"],
       entry_points={
-          'console_scripts': ['nda-cli=enstools.da.nda.cli:main'],
+          'console_scripts': ['freda-cli=enstools.da.freda.cli:main'],
       },
       # options={
       #     'build_scripts': {'executable': '/usr/bin/python3'},
