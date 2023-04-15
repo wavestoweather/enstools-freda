@@ -63,7 +63,7 @@ if [[ ! -d venv/envs/freda ]] ; then
 fi
 
 # install freda
-if [[ ! -d venv/envs/freda/bin/nda-cli ]] ; then
+if [[ ! -d venv/envs/freda/bin/freda-cli ]] ; then
     activate_mamba
     venv/envs/freda/bin/pip install -e .
 fi

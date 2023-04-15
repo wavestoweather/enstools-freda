@@ -70,7 +70,7 @@ tables = {'obstypes': {1: 'SYNOP', 2: 'AIREP', 3: 'SATOB', 4: 'DRIBU', 5: 'TEMP'
           'veri_ens_member_names': {0: 'ENS MEAN', -1: 'DETERM', -2: 'ENS SPREAD', -3: 'BG ERROR', -4: 'TALAGRAND',
                                     -5: 'VQC WEIGHT', -6: 'MEMBER', -7: 'ENS MEAN OBS'},
           # add aliases for names used in the model
-          'varname_aliases': {"QV": "Q", "qv": "Q","v": "V","u": "U","pres": "P","temp": "T"},
+          'varname_aliases': {"QV": "Q", "qv": "Q","v": "V","u": "U","pres": "P", "temp": "T", "t": "T"},
           # reverse mapping between names and variable numbers
           'name2varno': {}
           }

@@ -4,10 +4,10 @@ import scipy.spatial
 import os
 import logging
 from enstools.io.reader import expand_file_pattern
-from enstools.da.nda import DataAssimilation
+from enstools.da.freda import DataAssimilation
 from enstools.io import read
-from enstools.da.nda.algorithms.default import Default
-from enstools.da.nda.algorithms.debug import DebugDatatypes
+from enstools.da.freda.algorithms.default import Default
+from enstools.da.freda.algorithms.debug import DebugDatatypes
 from enstools.mpi import onRank0
 from enstools.mpi.grids import UnstructuredGrid
 from enstools.core.tempdir import TempDir
