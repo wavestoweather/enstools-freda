@@ -39,13 +39,13 @@ class UnstructuredGrid:
         log_and_time("UnstructuredGrid.__init__()", logging.INFO, True, self.comm)
         log_and_time("creating and distributing the PETSc grid", logging.INFO, True, self.comm)
         # the grid definition is only read on the first MPI processor. All other start with an empty grid
-        log_and_time("reading coordinates of verticies", logging.INFO, True, self.comm)
+        log_and_time("reading coordinates of vertices", logging.INFO, True, self.comm)
         if onRank0(comm):
             # create list of vertices for each cell. The ICON grid definition already contains this list,
             # but with the wrong order of dimensions.
             cells = np.asarray(ds["vertex_of_cell"].transpose(), dtype=PETSc.IntType) -1
 
-            # coordinates of the verticies
+            # coordinates of the vertices
             vlon = np.asarray(ds["vlon"], dtype=PETSc.RealType)
             vlat = np.asarray(ds["vlat"], dtype=PETSc.RealType)
             coords = np.empty((vlon.size, 2), dtype=PETSc.RealType)
@@ -63,7 +63,7 @@ class UnstructuredGrid:
         # communicate the total number of cells
         if isGt1(self.comm):
             self.ncells = self.comm_mpi4py.bcast(self.ncells, root=0)
-        log_and_time("reading coordinates of verticies", logging.INFO, False, self.comm)
+        log_and_time("reading coordinates of vertices", logging.INFO, False, self.comm)
 
         # create the grid object
         log_and_time("constructing the global DMPLex structure", logging.INFO, True, self.comm)
@@ -205,19 +205,27 @@ class UnstructuredGrid:
         log_and_time("distributing support information", logging.INFO, True, self.comm)
 
         # store cell center coordinates on the grid as sperical coordinates as well as as cartesian coordinates
+        # clon_vertices and clat_vertices are the spherical coordinates of the vertices of the cell and are
+        # distributed as well.
         log_and_time("calculating cartesian coordinates", logging.INFO, True, self.comm)
         if onRank0(comm):
             clon = ds["clon"].values
             clat = ds["clat"].values
+            clon_vertices = ds["clon_vertices"].values
+            clat_vertices = ds["clat_vertices"].values
             coords = spherical2cartesian(lon=clon, lat=clat)
         else:
             coords = np.empty((0, 3))
             clon = np.empty(0)
             clat = np.empty(0)
+            clon_vertices = np.empty((0, 3))
+            clat_vertices = np.empty((0, 3))
         log_and_time("calculating cartesian coordinates", logging.INFO, False, self.comm)
         log_and_time("distributing coordinate fields", logging.INFO, True, self.comm)
         self.addVariablePETSc("clon", values=clon)
         self.addVariablePETSc("clat", values=clat)
+        self.addVariablePETSc("clon_vertices", values=clon_vertices)
+        self.addVariablePETSc("clat_vertices", values=clat_vertices)
         self.addVariablePETSc("coordinates_cartesian", values=coords)
         log_and_time("distributing coordinate fields", logging.INFO, False, self.comm)
         log_and_time("distributing support information", logging.INFO, False, self.comm)
