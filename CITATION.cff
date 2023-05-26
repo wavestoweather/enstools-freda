@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+title: "FREDA: A framework for research on ensemble data assimilation"
+authors:
+  - family-names: Redl
+    given-names: Robert
+    orcid: "https://orcid.org/0000-0003-3055-7603"
+  - family-names: Ruckstuhl
+    given-names: Yvonne
+    orcid: "https://orcid.org/0000-0001-7335-3788"
+keywords:
+  - "data assimilation"
+  - ensemble
+  - meteorology
+  - Python
+license: Apache-2.0
+message: If you use this software, please cite it using these metadata.
+repository-code: "https://github.com/wavestoweather/enstools-freda"
+type: software
