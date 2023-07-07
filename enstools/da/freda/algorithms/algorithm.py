@@ -13,8 +13,7 @@ class Algorithm(ABC):
     def assimilate(state: np.ndarray, state_map: np.ndarray, state_map_inverse: np.ndarray,
                    observations: np.ndarray, observation_type: np.ndarray, reports: np.ndarray,
                    points_in_radius: np.ndarray, weights_h: np.ndarray, weights_v: np.ndarray, 
-                   updated: np.ndarray, det: int, rho: np.ndarray, 
-                   obs_inflation: float):
+                   updated: np.ndarray, det: int, rho: np.ndarray):
         """
         This function is called multiple times with different subsets of observation reports. All reports are
         processable without updating overlapping areas of the model domain. That means, the reports are guaranteed
@@ -37,7 +36,7 @@ class Algorithm(ABC):
         
         state_map_inverse:
                 Provides model layer and observation number for a layer index as in state. Shape: (layers, 2). Meaning of the two 
-                properties per layer: 0=model layer, 1=number of variable.
+                properties per layer: 0=number of variable, 1=model layer.
 
         observations:
                 This array will always include all observations. It is the responsibility of the algorithm to select
