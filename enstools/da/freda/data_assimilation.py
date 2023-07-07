@@ -23,7 +23,10 @@ class DataAssimilation:
     """
     Data Assimilation Tool
     """
-    def __init__(self, grid: UnstructuredGrid, localization_radius: float = 500000.0, localization_radius_v: float = 5000.0, comm: PETSc.Comm = None, rho: float = 1.0, det: int = 0, obs_inflation: float = 1.0, adap_mult_infl: int = 0, file_name_mean=''):
+    # Yvonne modified multiplicative inflation. It is not a function of height
+    # Yvonne added vertical localization and adaptive inflation
+    # Yvonne: file_name_mean is the background ensemble mean and is necessary to add the adaptive inflation factor to the ensemble perturbations (x_i-x_mean)
+    def __init__(self, grid: UnstructuredGrid, localization_radius: float = 500000.0, localization_radius_v: float = 5000.0, comm: PETSc.Comm = None, rho: float = 1.0, det: int = 0, adap_mult_infl: int = 0, file_name_mean=''):
         """
         Create a new data assimilation context for the given grid.
 
@@ -54,7 +57,7 @@ class DataAssimilation:
         self.grid: UnstructuredGrid = grid
         self.state_file_names: List[str] = None
         self.state_variables: Dict[str, Dict[str, Any]] = {}
-        self.height_mlevels: np.ndarray = None
+        self.height_mlevels: np.ndarray = None  #Yvonne: needed for vertical localization and multiplicative inflation as function of height
 
         # dataset for observations
         self.observations = {}
@@ -66,11 +69,11 @@ class DataAssimilation:
         # remaining da settings
         self.rho = rho
         self.det = det
+        # Yvonne: next are all needed for adaptive inflation 
         self.adap_mult_infl = adap_mult_infl
         self.file_name_mean = file_name_mean
         self.inflation_factor = 1.0
         self.inflation_factor_qv = 1.0
-        self.obs_inflation = 0
 
         # create a kd-tree for all grid points on the current processor
         self.local_kdtree: KDTree = KDTree(self.grid.getLocalArray("coordinates_cartesian"))
@@ -173,7 +176,6 @@ class DataAssimilation:
             if ifile + self.mpi_rank < len(expanded_filenames):
                 one_filename = expanded_filenames[ifile + self.mpi_rank]
                 log_and_time(f"reading file {one_filename}", logging.INFO, True, self.comm, 0)
-                #ds = self.inflation_factor**0.5*(read(one_filename)-bg_mean)+bg_mean
                 ds = read(one_filename)
                 rank_has_data = True
             else:
@@ -186,7 +188,7 @@ class DataAssimilation:
             for ivar, varname in enumerate(self.state_variables['__names']):
                 if ds is not None:
                     log_and_time(f"reading variable {varname}", logging.INFO, True, self.comm, -1)
-                    if self.file_name_mean is not None:
+                    if self.file_name_mean is not None:  #Yvonne: if adaptive inflation, the background ensemble is adapted here
                         if varname == "qv" or varname == "gh":
                             values = (self.inflation_factor_qv**0.5*(ds[varname].values[0, ...]-bg_mean[varname].values[0,...])+bg_mean[varname].values[0,...]).transpose()
                         else:
@@ -308,7 +310,7 @@ class DataAssimilation:
             else:
                 one_output_file = os.path.join(output_folder, os.path.basename(one_file))
             base, ext = os.path.splitext(one_output_file)
-            one_output_file = base + "_analysis.nc"
+            one_output_file = base + "_analysis.nc" #Yvonne modified to not overwrite the background (I think there was a reason why I didn't just create a copy of the background, but I forgot what it was)
             if one_output_file in output_files:
                 raise IOError("names of output files are not unique. Try to use the member_folder argument!")
             output_files.append(one_output_file)
@@ -664,6 +666,7 @@ class DataAssimilation:
         
 	# create the inverse of state_map
         index = np.argmax(state_map[:,0])
+        # Yvonne added state_map_inverse that is needed for vertical localization and multiplicative inflation as function of height.
         state_map_inverse = np.empty((state_map[index,0]+state_map[index,1],2) , dtype=np.int32)
         state_map_inverse[:] = -1
         for one_var in self.state_variables["__names"]:
@@ -767,7 +770,7 @@ class DataAssimilation:
                 print("INFLATION FACTOR = ",self.inflation_factor)
                 print("INFLATION FACTOR_QV = ",self.inflation_factor_qv)
             if unique_indices.shape[0] > 0:
-                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, state_map_inverse, observations, observations_type, reports, affected_points, weights_h, weights_v, updated, self.det, multiplicative_inflation, self.obs_inflation)
+                algorithm.assimilate(self.grid.getLocalArray("state"), state_map, state_map_inverse, observations, observations_type, reports, affected_points, weights_h, weights_v, updated, self.det, multiplicative_inflation)
             self.comm.barrier()
             log_and_time(f"{algorithm.__class__.__name__}.assimilate()", logging.INFO, False, self.comm, 0, False)
 
