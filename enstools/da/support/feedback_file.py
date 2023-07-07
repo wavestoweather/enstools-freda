@@ -15,6 +15,7 @@ import pdb
 # ---------------------------------------------- tables from documentation ------------------------------------------- #
 # see http://www2.cosmo-model.org/content/model/documentation/core/cosmoFeedbackFileDefinition.pdf
 # and https://gitlab.physik.uni-muenchen.de/Leonhard.Scheck/kendapy/blob/master/ekf.py
+# Yvonne added General Humidity (gh, RH), which is a transformation from relative humidity they do at DWD to keep values positive
 
 tables = {'obstypes': {1: 'SYNOP', 2: 'AIREP', 3: 'SATOB', 4: 'DRIBU', 5: 'TEMP', 6: 'PILOT', 7: 'SATEM', 8: 'PAOB',
                        9: 'SCATT', 10: 'RAD', 11: 'GPSRO', 12: 'GPSGB', 13: 'RADAR'},
@@ -118,6 +119,8 @@ class FeedbackFile:
             self.data: xr.Dataset = xr.Dataset()
             self.data.attrs["n_hdr"] = 0
             self.data.attrs["n_body"] = 0
+
+            # the following Yvonne added for adaptive inflation. qv needs a seperate inflation factor because of ... Probably not the best implementation. 
             self.data.attrs["trace_P"] = 0
             self.data.attrs["innovation"] = 0
             self.data.attrs["trace_P_qv"] = 0
@@ -137,9 +140,10 @@ class FeedbackFile:
         self.kdtree = scipy.spatial.cKDTree(self.coords)
 
     def add_observation_from_model_output(self, model_file: Union[str, List[str]], 
-                                          model_equivalent: Union[str, List[str]], model_spread: Union[str, List[str]], 
+                                          model_equivalent: Union[str, List[str]], model_spread: Union[str, List[str]], #these are added for adaptive inflation
+                                          vars_affected: List[str],
                                           variables: List[str], error: Dict[str, float],
-                                          lon: np.ndarray, lat: np.ndarray, seed: int, levels: np.ndarray = None,
+                                          lon: np.ndarray, lat: np.ndarray, seed: int, levels: np.ndarray = None,   #Yvonne added seed for observation error for reproducability 
                                           level_type: LevelType = LevelType.PRESSURE, model_grid: str = None,
                                           perfect: bool = False):
         """
@@ -149,10 +153,10 @@ class FeedbackFile:
         model_file:
                 file name or list of file names to extract data from. These names are forwarded to `enstools.io.read`.
 
-        model_equivalent:
+        model_equivalent (added by Yvonne, but should be calculated by FREDA):
 		background model equiavelent to be converted to observation space
 
-        model_spread:
+        model_spread (added by Yvonne, but should be calculated by FREDA):
 		background spread to be converted to observations space squared (Diagonal of Pb)
 
         variables:
@@ -179,11 +183,13 @@ class FeedbackFile:
 
         perfect:
                 if set to true, observations are created without adding a random error. Default: False.
+
+        vars_affected:
+                variables that are updated by DA
         """
         # read the model files and check the content.
         model = read(model_file)
-        #np.random.seed(seed)
-        if model_equivalent is not None:
+        if model_equivalent is not None: #added by Yvonne for adaptive inflation
             equivalent = read(model_equivalent)
             spread = read(model_spread)
 
@@ -237,11 +243,14 @@ class FeedbackFile:
         # select the requested points from all model variables and interpolate them to requested levels
         variables_per_gridcell = {}
         o_total_number = 0
+
+        # added by Yvonne for adaptive inflation
         innovation = 0
         trace_P = 0
         innovation_qv = 0
         trace_P_qv = 0
 
+        # added by Yvonne for general humidity (gh)
         b1       =   610.78
         b2w      =    17.2693882
         b3       =   273.16
@@ -252,29 +261,37 @@ class FeedbackFile:
         o_m_rdv  = 1.0 - rdv
          
         # if neither qv nor gh is observed but is updated, the inflation factor should still be calculated  
-        if ("gh" not in variables) and ("qv" not in variables):
-            if model_equivalent is not None:
-                if 'qv' in equivalent.keys():
-                    data = model['qv'][...,m_valid_indices]
-                    data_equivalent = equivalent['qv'][..., m_valid_indices]
-                    data_spread = spread['qv'][..., m_valid_indices]
-                elif 'gh' in equivalent.keys():
-                    data_equivalent = equivalent['gh'][..., m_valid_indices]
-                    data_spread = spread['gh'][..., m_valid_indices]
-                    zpvs = b1*np.exp( b2w*(model['temp']-b3) / (model['temp']-b4w) )
-                    zqvs = rdv*zpvs / (model['pres'] - o_m_rdv*zpvs)
-                    data = (model['qv']/zqvs * 100.0)[...,m_valid_indices]
-            
-                data_qv = data.copy()
-                data = vert_intpol(data)
+        for one_var in vars_affected:
+            if one_var not in variables:
+                if model_equivalent is not None:
+                    if one_var == 'gh':
+                        data_equivalent = equivalent['gh'][..., m_valid_indices]
+                        data_spread = spread['gh'][..., m_valid_indices]
+                        zpvs = b1*np.exp( b2w*(model['temp']-b3) / (model['temp']-b4w) )
+                        zqvs = rdv*zpvs / (model['pres'] - o_m_rdv*zpvs)
+                        data = (model['qv']/zqvs * 100.0)[...,m_valid_indices]
+                    else:
+                        data = model[one_var][...,m_valid_indices]
+                        data_equivalent = equivalent[one_var][..., m_valid_indices]
+                        data_spread = spread[one_var][..., m_valid_indices]
+                    if one_var == 'qv' or one_var == 'gh':
+                        data_qv = data.copy()
+                        data = vert_intpol(data)
                 
-                levels_qv = levels[levels>80]
-                vert_intpol_qv = lambda x: np.take(x, levels_qv, axis=1)
-                data_qv = vert_intpol_qv(data_qv)
-                data_equivalent = vert_intpol_qv(data_equivalent)
-                data_spread = vert_intpol_qv(data_spread)
-                innovation_qv += np.sum((data_qv.values - data_equivalent.values)**2)
-                trace_P_qv += np.sum(data_spread.values**2)
+                        levels_qv = levels[levels>80]
+                        vert_intpol_qv = lambda x: np.take(x, levels_qv, axis=1)
+                        data_qv = vert_intpol_qv(data_qv)
+                        data_equivalent = vert_intpol_qv(data_equivalent)
+                        data_spread = vert_intpol_qv(data_spread)
+                        innovation_qv += np.sum((data_qv.values - data_equivalent.values)**2)
+                        trace_P_qv += np.sum(data_spread.values**2)
+                    else:
+                        data = vert_intpol(data)
+                        data_equivalent = vert_intpol(data_equivalent)
+                        data_spread = vert_intpol(data_spread)
+                        innovation += np.sum((data.values - data_equivalent.values)**2)
+                        trace_P += np.sum(data_spread.values**2)
+
         for one_var in variables:
             if one_var == "gh":
                 zpvs = b1*np.exp( b2w*(model['temp']-b3) / (model['temp']-b4w) )
@@ -311,6 +328,7 @@ class FeedbackFile:
                         trace_P += np.sum(data_spread.values**2)
             o_total_number += data.size - np.count_nonzero(np.isnan(data.values))
             variables_per_gridcell[one_var] = data
+
         logging.info(f"total number of observations: {o_total_number}")
        
         # empty ds for the new reports and observations
@@ -369,6 +387,7 @@ class FeedbackFile:
                     if perfect:
                         body_obs[current_obs] = value
                     else:
+                        # Yvonne added a seed for reproducability 
                         key = hash(f"cycle:{seed}level:{level}cell:{cell}var:{var}")
                         np.random.seed(key%(2**32))
                         body_obs[current_obs] = value + np.random.normal(0, error[var])
