@@ -179,7 +179,8 @@ def ff(args):
                                              seed=args.seed,
                                              levels=np.asarray(levels),
                                              level_type=level_type,
-                                             perfect=args.perfect)
+                                             perfect=args.perfect,
+                                             vars_affected=args.vars_affected)
 
     # write the observation to the output file
     result.write_to_file(args.dest)
@@ -210,7 +211,6 @@ def main():
     parser_da.add_argument("--loc-radius", type=int, default=500, help="localization radius in km. Default is 500.")
     parser_da.add_argument("--loc-radius-vertical", type=int, default=5, help="vertical localization radius in km. Default is 5")
     parser_da.add_argument("--rho", type=float, default=1.0, help="multiplicative inflation factor. Default is 1.0.")
-    parser_da.add_argument("--obs_inflation", type=float, default=1.0, help="inflation factor of observation error. Default is 1.0.")
     parser_da.add_argument("--adap_mult_infl", type=bool, default=False, help="True if adaptive multiplicative inflation is applied. Default is False.")
     parser_da.add_argument("--file_name_mean", default=None, help="background mean file to use if adap_mult_infl=True.")
     parser_da.add_argument("--algorithm", default="Default", help="name of the algorithm to run or name of a python file containing the algorithm to run. Default is 'Default'.")
@@ -220,8 +220,8 @@ def main():
     # arguments for the preparation of feedback files
     parser_ff = subparsers.add_parser("ff", help="create Feedback Files with observations.")
     parser_ff.add_argument("--source", required=True, help="model output file from which the observations should be extracted.")
-    parser_ff.add_argument("--background_mean", default=None, help="")
-    parser_ff.add_argument("--background_spread", default=None, help="")
+    parser_ff.add_argument("--background_mean", default=None, help="")  #TO DO: Should be calculated inside FREDA!
+    parser_ff.add_argument("--background_spread", default=None, help="") #TO DO: Should be calculated inside FREDA!
     parser_ff.add_argument("--grid", required=True, help="grid definition file which matches the source file.")
     parser_ff.add_argument("--dest", required=True, help="destination file in which the observations should be stored. If this file already exists, new oberservations are appended.")
     parser_ff.add_argument("--obs-loc-type", default="1d", choices={"1d", "mesh", "reduced"}, help="Type of description of locations of observations. 1d: --obs-lon and --obs-lat contain sequences of coordinates. Observations are extracted for each lon/lat pair. mesh: a regular mesh spun up by the coordinates given on --obs-lon and --obs-lat. reduced: gaussian grid like distribution of locations.")
@@ -235,7 +235,7 @@ def main():
     parser_ff.add_argument("--levels", required=True, help="vertical levels to extract. The same levels are extracted for all variables. Comma-separated values or a range as in --obs-lon is expected.")
     parser_ff.add_argument("--level-type", default="model", choices={"model", "pressure"}, help="unit of the levels given in --levels.")
     parser_ff.set_defaults(func=ff)
-
+    parser_ff.add_argument("--vars_affected", required=True, nargs="+", help="names of variables that are affected by DA. The names must match names from the source file.")
     # parse the arguments and run the selected function
     args = parser.parse_args()
     args.func(args)
