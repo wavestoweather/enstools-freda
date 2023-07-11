@@ -6,12 +6,12 @@ import logging
 from enstools.io.reader import expand_file_pattern
 from enstools.da.freda import DataAssimilation
 from enstools.io import read
-from enstools.da.freda.algorithms.default import Default
+from enstools.da.freda.algorithms.EnSRF import EnSRF
 from enstools.da.freda.algorithms.debug import DebugDatatypes
 from enstools.mpi import onRank0
 from enstools.mpi.grids import UnstructuredGrid
 from enstools.core.tempdir import TempDir
-
+import pdb
 
 @pytest.fixture
 def da(grid_with_overlap: UnstructuredGrid, ff_file: str, comm):
@@ -100,13 +100,12 @@ def test_save_state(da: DataAssimilation, get_tmpdir: TempDir, comm):
         output_path = None
     output_path = comm.tompi4py().bcast(output_path, root=0)
     da.save_state(output_folder=output_path)
-
     # read the original data and compare with the newly written files
     if onRank0(comm):
         # original data
         ds_orig = read("/archive/meteo/external-models/dwd/icon/oper/icon_oper_eps_gridded-global_rolling/202002/20200201T00/igaf2020020100.m00[1-5].grb")
         # newly written data
-        new_files = expand_file_pattern(f"{get_tmpdir.getpath()}/igaf2020020100.m00[1-5].nc")
+        new_files = expand_file_pattern(f"{get_tmpdir.getpath()}/igaf2020020100.m00[1-5]_analysis.nc")
         for one_file in new_files:
             assert os.path.exists(one_file)
         ds_new = read(new_files)
@@ -117,7 +116,7 @@ def test_save_state(da: DataAssimilation, get_tmpdir: TempDir, comm):
             new = np.asarray(ds_new[var])
             assert orig.shape == new.shape
             np.testing.assert_array_equal(orig, new)
-
+ 
     # save the state again with sub folders for ensemble members
     da.save_state(output_folder=output_path, member_folder="%03d")
 
@@ -146,5 +145,5 @@ def test_run_dummy(da: DataAssimilation, comm):
     run the actual data assimilation with the dummy algorithm.
     """
     # create an instance of the algorithm
-    default = Default()
+    default = EnSRF()
     da.run(default)

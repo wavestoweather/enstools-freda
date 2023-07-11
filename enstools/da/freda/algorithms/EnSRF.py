@@ -64,7 +64,9 @@ class EnSRF(Algorithm):
                     for i_layer in range(n_varlayer):
                         mlevel_state = state_map_inverse[i_layer,1]
                         # calculate covariance between model equivalent and the current location in the state
-                        p = covariance(state, i_cell, i_layer, deviation_equivalent_mean) * weights_h[i_points, i_radius] * rho[mlevel_state] * weights_v[mlevel_obs,mlevel_state] 
+                        p = covariance(state, i_cell, i_layer, deviation_equivalent_mean) * weights_h[i_points, i_radius]  
+                        if len(weights_v) > 0:
+                            p = p * rho[mlevel_state] * weights_v[mlevel_obs,mlevel_state] 
                         
                         # update the state at the current location
                         for i_ens in range(n_ens):

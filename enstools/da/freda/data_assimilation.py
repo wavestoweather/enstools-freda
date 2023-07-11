@@ -26,7 +26,7 @@ class DataAssimilation:
     # Yvonne modified multiplicative inflation. It is not a function of height
     # Yvonne added vertical localization and adaptive inflation
     # Yvonne: file_name_mean is the background ensemble mean and is necessary to add the adaptive inflation factor to the ensemble perturbations (x_i-x_mean)
-    def __init__(self, grid: UnstructuredGrid, localization_radius: float = 500000.0, localization_radius_v: float = 5000.0, comm: PETSc.Comm = None, rho: float = 1.0, det: int = 0, adap_mult_infl: int = 0, file_name_mean=''):
+    def __init__(self, grid: UnstructuredGrid, localization_radius: float = 500000.0, localization_radius_v: float = 5000.0, comm: PETSc.Comm = None, rho: float = 1.0, det: int = 0, adap_mult_infl: int = 0, file_name_mean=None):
         """
         Create a new data assimilation context for the given grid.
 
@@ -128,8 +128,13 @@ class DataAssimilation:
             ds = read(expanded_filenames[0])
             if self.file_name_mean is not None:
             	bg_mean = read(self.file_name_mean)
-            # extract height information 
-            self.height_mlevels=ds['z_ifc'].values[:,0]
+            # extract height information
+            if 'z_ifc' in ds.variables:
+                self.height_mlevels=ds['z_ifc'].values[:,0]
+            else:
+                print("Woops, cannot extract height information. Need to supply variable 'z_ifc' in background. We should find a solution for this")
+                self.height_mlevels = None
+
             # only specific variables or all variables?
             if variables is None:
                 variables = []
@@ -684,9 +689,12 @@ class DataAssimilation:
         clat = self.grid.getLocalArray("clat")
 
         #multiplicative inflation
-        a = (1.0-self.rho)/(self.height_mlevels[0]-self.height_mlevels[-1])
-        b = self.rho-a*self.height_mlevels[-1]
-        multiplicative_inflation = a*self.height_mlevels+b
+        if self.height_mlevels is not None:
+            a = (1.0-self.rho)/(self.height_mlevels[0]-self.height_mlevels[-1])
+            b = self.rho-a*self.height_mlevels[-1]
+            multiplicative_inflation = a*self.height_mlevels+b
+        else:
+            multiplicative_inflation = np.empty((0), dtype=np.float32)
 
         # here we loop over all non-overlapping sets of reports created before by _calculate_non_overlapping_reports
         for iset in range(self.observations["report_sets"].shape[0]):
@@ -737,9 +745,11 @@ class DataAssimilation:
                     affected_points[one_radius, _affected_points[one_radius].shape[0]:] = -1
 
                 # calculate weights of each affected point
-               
-                weights_v = np.ones((len(self.height_mlevels),len(self.height_mlevels)),dtype=np.float32)
-                if self.localization_radius_v > 0:
+                if self.height_mlevels is not None: 
+                    weights_v = np.ones((len(self.height_mlevels),len(self.height_mlevels)),dtype=np.float32)
+                else:
+                    weights_v = np.empty((0, 0), dtype=np.float32)
+                if self.localization_radius_v > 0 and self.height_mlevels is not None:
                     for i_level in range(len(self.height_mlevels)):
                         for j_level in range(i_level+1):
                             dist = np.empty(1, dtype=np.float32)

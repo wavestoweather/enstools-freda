@@ -140,11 +140,11 @@ class FeedbackFile:
         self.kdtree = scipy.spatial.cKDTree(self.coords)
 
     def add_observation_from_model_output(self, model_file: Union[str, List[str]], 
-                                          model_equivalent: Union[str, List[str]], model_spread: Union[str, List[str]], #these are added for adaptive inflation
-                                          vars_affected: List[str],
                                           variables: List[str], error: Dict[str, float],
-                                          lon: np.ndarray, lat: np.ndarray, seed: int, levels: np.ndarray = None,   #Yvonne added seed for observation error for reproducability 
+                                          lon: np.ndarray, lat: np.ndarray, seed: int=0, levels: np.ndarray = None,   #Yvonne added seed for observation error for reproducability 
                                           level_type: LevelType = LevelType.PRESSURE, model_grid: str = None,
+                                          vars_affected: List[str]=None,
+                                          model_equivalent: Union[str, List[str]]=None, model_spread: Union[str, List[str]]=None, #these are added for adaptive inflation
                                           perfect: bool = False):
         """
 
@@ -261,36 +261,37 @@ class FeedbackFile:
         o_m_rdv  = 1.0 - rdv
          
         # if neither qv nor gh is observed but is updated, the inflation factor should still be calculated  
-        for one_var in vars_affected:
-            if one_var not in variables:
-                if model_equivalent is not None:
-                    if one_var == 'gh':
-                        data_equivalent = equivalent['gh'][..., m_valid_indices]
-                        data_spread = spread['gh'][..., m_valid_indices]
-                        zpvs = b1*np.exp( b2w*(model['temp']-b3) / (model['temp']-b4w) )
-                        zqvs = rdv*zpvs / (model['pres'] - o_m_rdv*zpvs)
-                        data = (model['qv']/zqvs * 100.0)[...,m_valid_indices]
-                    else:
-                        data = model[one_var][...,m_valid_indices]
-                        data_equivalent = equivalent[one_var][..., m_valid_indices]
-                        data_spread = spread[one_var][..., m_valid_indices]
-                    if one_var == 'qv' or one_var == 'gh':
-                        data_qv = data.copy()
-                        data = vert_intpol(data)
+        if vars_affected is not None:
+            for one_var in vars_affected:
+                if one_var not in variables:
+                    if model_equivalent is not None:
+                        if one_var == 'gh':
+                            data_equivalent = equivalent['gh'][..., m_valid_indices]
+                            data_spread = spread['gh'][..., m_valid_indices]
+                            zpvs = b1*np.exp( b2w*(model['temp']-b3) / (model['temp']-b4w) )
+                            zqvs = rdv*zpvs / (model['pres'] - o_m_rdv*zpvs)
+                            data = (model['qv']/zqvs * 100.0)[...,m_valid_indices]
+                        else:
+                            data = model[one_var][...,m_valid_indices]
+                            data_equivalent = equivalent[one_var][..., m_valid_indices]
+                            data_spread = spread[one_var][..., m_valid_indices]
+                        if one_var == 'qv' or one_var == 'gh':
+                            data_qv = data.copy()
+                            data = vert_intpol(data)
                 
-                        levels_qv = levels[levels>80]
-                        vert_intpol_qv = lambda x: np.take(x, levels_qv, axis=1)
-                        data_qv = vert_intpol_qv(data_qv)
-                        data_equivalent = vert_intpol_qv(data_equivalent)
-                        data_spread = vert_intpol_qv(data_spread)
-                        innovation_qv += np.sum((data_qv.values - data_equivalent.values)**2)
-                        trace_P_qv += np.sum(data_spread.values**2)
-                    else:
-                        data = vert_intpol(data)
-                        data_equivalent = vert_intpol(data_equivalent)
-                        data_spread = vert_intpol(data_spread)
-                        innovation += np.sum((data.values - data_equivalent.values)**2)
-                        trace_P += np.sum(data_spread.values**2)
+                            levels_qv = levels[levels>80]
+                            vert_intpol_qv = lambda x: np.take(x, levels_qv, axis=1)
+                            data_qv = vert_intpol_qv(data_qv)
+                            data_equivalent = vert_intpol_qv(data_equivalent)
+                            data_spread = vert_intpol_qv(data_spread)
+                            innovation_qv += np.sum((data_qv.values - data_equivalent.values)**2)
+                            trace_P_qv += np.sum(data_spread.values**2)
+                        else:
+                            data = vert_intpol(data)
+                            data_equivalent = vert_intpol(data_equivalent)
+                            data_spread = vert_intpol(data_spread)
+                            innovation += np.sum((data.values - data_equivalent.values)**2)
+                            trace_P += np.sum(data_spread.values**2)
 
         for one_var in variables:
             if one_var == "gh":
