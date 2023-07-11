@@ -2,7 +2,7 @@ from .algorithm import Algorithm, model_equivalent, covariance
 from numba import jit, prange, i4, f4
 import numpy as np
 
-class Default(Algorithm):
+class EnKF(Algorithm):
 
     @staticmethod
     @jit("void(f4[:,:,::1], i4[:,::1], f4[:,::1], i4[:,::1], i4[:,::1], i4[:,::1], f4[:,::1], i1[::1], i4, f4)",

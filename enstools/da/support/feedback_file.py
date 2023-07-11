@@ -15,6 +15,7 @@ import pdb
 # ---------------------------------------------- tables from documentation ------------------------------------------- #
 # see http://www2.cosmo-model.org/content/model/documentation/core/cosmoFeedbackFileDefinition.pdf
 # and https://gitlab.physik.uni-muenchen.de/Leonhard.Scheck/kendapy/blob/master/ekf.py
+# Yvonne added General Humidity (gh, RH), which is a transformation from relative humidity they do at DWD to keep values positive
 
 tables = {'obstypes': {1: 'SYNOP', 2: 'AIREP', 3: 'SATOB', 4: 'DRIBU', 5: 'TEMP', 6: 'PILOT', 7: 'SATEM', 8: 'PAOB',
                        9: 'SCATT', 10: 'RAD', 11: 'GPSRO', 12: 'GPSGB', 13: 'RADAR'},
@@ -36,7 +37,7 @@ tables = {'obstypes': {1: 'SYNOP', 2: 'AIREP', 3: 'SATOB', 4: 'DRIBU', 5: 'TEMP'
                        110: 'PS', 111: 'DD', 112: 'FF', 118: 'REFL', 119: 'RAWBT', 120: 'RADIANCE', 41: 'U10M',
                        42: 'V10M', 7: 'Q', 56: 'VT', 155: 'VN', 156: 'HEIGHT', 157: 'FLEV', 192: 'RREFL', 193: 'RADVEL',
                        128: 'PDELAY', 162: 'BENDANG', 252: 'IMPPAR', 248: 'REFR', 245: 'ZPD', 246: 'ZWD', 247: 'SPD',
-                       242: 'GUST', 251: 'P', 243: 'TMIN', 237: 'UNKNOWN237', 238: 'UNKNOWN238', 239: 'UNKNOWN239'},
+                       242: 'GUST', 251: 'P', 243: 'TMIN', 237: 'UNKNOWN237', 238: 'UNKNOWN238', 239: 'UNKNOWN239', 777: 'RH'},
           'fullvarnames': {0: 'NUM ordinal (channel) number', 3: 'U m/s u-component of wind',
                            4: 'V m/s v-component of wind', 8: 'W m/s vertical velocity', 1: 'Z (m/s)**2 geopotential',
                            57: 'DZ (m/s)**2 thickness', 9: 'PWC kg/m**2 precipitable water content',
@@ -64,13 +65,14 @@ tables = {'obstypes': {1: 'SYNOP', 2: 'AIREP', 3: 'SATOB', 4: 'DRIBU', 5: 'TEMP'
                            128: 'PDELAY m atmospheric path delay', 162: 'BENDANG rad bending angle',
                            252: 'IMPPAR m impact parameter', 248: 'REFR refractivity', 245: 'ZPD zenith path delay',
                            246: 'ZWD zenith wet delay', 247: 'SPD slant path delay', 242: 'GUST m/s wind gust',
-                           251: 'P Pa pressure', 243: 'TMIN K minimum temperature'},
+                           251: 'P Pa pressure', 243: 'TMIN K minimum temperature',
+                           777: 'Relative Humidity'},
           'veri_run_types': {0: 'FORECAST', 1: 'FIRSTGUESS', 2: 'PREL ANA', 3: 'ANALYSIS', 4: 'INIT ANA', 5: 'LIN ANA'},
           'veri_run_classes': {0: 'HAUPT', 1: 'VOR', 2: 'ASS', 3: 'TEST'},
           'veri_ens_member_names': {0: 'ENS MEAN', -1: 'DETERM', -2: 'ENS SPREAD', -3: 'BG ERROR', -4: 'TALAGRAND',
                                     -5: 'VQC WEIGHT', -6: 'MEMBER', -7: 'ENS MEAN OBS'},
           # add aliases for names used in the model
-          'varname_aliases': {"QV": "Q", "qv": "Q","v": "V","u": "U","pres": "P", "temp": "T", "t": "T"},
+          'varname_aliases': {"QV": "Q", "qv": "Q","v": "V","u": "U","pres": "P","temp": "T","gh": "RH"},
           # reverse mapping between names and variable numbers
           'name2varno': {}
           }
@@ -118,6 +120,12 @@ class FeedbackFile:
             self.data.attrs["n_hdr"] = 0
             self.data.attrs["n_body"] = 0
 
+            # the following Yvonne added for adaptive inflation. qv needs a seperate inflation factor because of ... Probably not the best implementation. 
+            self.data.attrs["trace_P"] = 0
+            self.data.attrs["innovation"] = 0
+            self.data.attrs["trace_P_qv"] = 0
+            self.data.attrs["innovation_qv"] = 0
+
         # load reference grid
         if gridfile is not None:
             if isinstance(gridfile, xr.Dataset):
@@ -131,9 +139,11 @@ class FeedbackFile:
         self.coords: np.ndarray = spherical2cartesian(self.grid["clon"], self.grid["clat"])
         self.kdtree = scipy.spatial.cKDTree(self.coords)
 
-    def add_observation_from_model_output(self, model_file: Union[str, List[str]],
+    def add_observation_from_model_output(self, model_file: Union[str, List[str]], 
+                                          model_equivalent: Union[str, List[str]], model_spread: Union[str, List[str]], #these are added for adaptive inflation
+                                          vars_affected: List[str],
                                           variables: List[str], error: Dict[str, float],
-                                          lon: np.ndarray, lat: np.ndarray, levels: np.ndarray = None,
+                                          lon: np.ndarray, lat: np.ndarray, seed: int, levels: np.ndarray = None,   #Yvonne added seed for observation error for reproducability 
                                           level_type: LevelType = LevelType.PRESSURE, model_grid: str = None,
                                           perfect: bool = False):
         """
@@ -141,7 +151,13 @@ class FeedbackFile:
         Parameters
         ----------
         model_file:
-                file name ot list of file names to extract data from. These names are forwarded to `enstools.io.read`.
+                file name or list of file names to extract data from. These names are forwarded to `enstools.io.read`.
+
+        model_equivalent (added by Yvonne, but should be calculated by FREDA):
+		background model equiavelent to be converted to observation space
+
+        model_spread (added by Yvonne, but should be calculated by FREDA):
+		background spread to be converted to observations space squared (Diagonal of Pb)
 
         variables:
                 list of variable names to extract. All variables will be placed in one report.
@@ -167,9 +183,15 @@ class FeedbackFile:
 
         perfect:
                 if set to true, observations are created without adding a random error. Default: False.
+
+        vars_affected:
+                variables that are updated by DA
         """
         # read the model files and check the content.
         model = read(model_file)
+        if model_equivalent is not None: #added by Yvonne for adaptive inflation
+            equivalent = read(model_equivalent)
+            spread = read(model_spread)
 
         # load the grid if required and create a kdtree
         if model_grid is not None:
@@ -221,14 +243,94 @@ class FeedbackFile:
         # select the requested points from all model variables and interpolate them to requested levels
         variables_per_gridcell = {}
         o_total_number = 0
+
+        # added by Yvonne for adaptive inflation
+        innovation = 0
+        trace_P = 0
+        innovation_qv = 0
+        trace_P_qv = 0
+
+        # added by Yvonne for general humidity (gh)
+        b1       =   610.78
+        b2w      =    17.2693882
+        b3       =   273.16
+        b4w      =    35.86
+        r_d      =   287.05 # gas constant for dry air
+        r_v      =   461.51 # gas constant for water vapor
+        rdv      = r_d / r_v
+        o_m_rdv  = 1.0 - rdv
+         
+        # if neither qv nor gh is observed but is updated, the inflation factor should still be calculated  
+        for one_var in vars_affected:
+            if one_var not in variables:
+                if model_equivalent is not None:
+                    if one_var == 'gh':
+                        data_equivalent = equivalent['gh'][..., m_valid_indices]
+                        data_spread = spread['gh'][..., m_valid_indices]
+                        zpvs = b1*np.exp( b2w*(model['temp']-b3) / (model['temp']-b4w) )
+                        zqvs = rdv*zpvs / (model['pres'] - o_m_rdv*zpvs)
+                        data = (model['qv']/zqvs * 100.0)[...,m_valid_indices]
+                    else:
+                        data = model[one_var][...,m_valid_indices]
+                        data_equivalent = equivalent[one_var][..., m_valid_indices]
+                        data_spread = spread[one_var][..., m_valid_indices]
+                    if one_var == 'qv' or one_var == 'gh':
+                        data_qv = data.copy()
+                        data = vert_intpol(data)
+                
+                        levels_qv = levels[levels>80]
+                        vert_intpol_qv = lambda x: np.take(x, levels_qv, axis=1)
+                        data_qv = vert_intpol_qv(data_qv)
+                        data_equivalent = vert_intpol_qv(data_equivalent)
+                        data_spread = vert_intpol_qv(data_spread)
+                        innovation_qv += np.sum((data_qv.values - data_equivalent.values)**2)
+                        trace_P_qv += np.sum(data_spread.values**2)
+                    else:
+                        data = vert_intpol(data)
+                        data_equivalent = vert_intpol(data_equivalent)
+                        data_spread = vert_intpol(data_spread)
+                        innovation += np.sum((data.values - data_equivalent.values)**2)
+                        trace_P += np.sum(data_spread.values**2)
+
         for one_var in variables:
-            data = model[one_var][..., m_valid_indices]
+            if one_var == "gh":
+                zpvs = b1*np.exp( b2w*(model['temp']-b3) / (model['temp']-b4w) )
+                zqvs = rdv*zpvs / (model['pres'] - o_m_rdv*zpvs)
+                data = (model['qv']/zqvs * 100.0)[...,m_valid_indices]
+                
+                if model_equivalent is not None: 
+                    data_equivalent = equivalent['gh'][..., m_valid_indices]
+                    data_spread = spread['gh'][..., m_valid_indices]
+            else:
+                data = model[one_var][..., m_valid_indices]
+                if model_equivalent is not None:
+        
+                    data_equivalent = equivalent[one_var][..., m_valid_indices]
+                    data_spread = spread[one_var][...,m_valid_indices]
+           
             if levels is not None:
+                if one_var == "qv" or one_var == "gh":
+                    data_qv = data.copy()
                 data = vert_intpol(data)
+                if model_equivalent is not None:
+                    if one_var == "qv" or one_var == "gh":
+                        levels_qv = levels[levels>80]
+                        vert_intpol_qv = lambda x: np.take(x, levels_qv, axis=1)
+                        data_qv = vert_intpol_qv(data_qv)
+                        data_equivalent = vert_intpol_qv(data_equivalent)
+                        data_spread = vert_intpol_qv(data_spread)
+                        innovation_qv += np.sum((data_qv.values - data_equivalent.values)**2)
+                        trace_P_qv += np.sum(data_spread.values**2)
+                    else:
+                        data_equivalent = vert_intpol(data_equivalent)
+                        data_spread = vert_intpol(data_spread)
+                        innovation += np.sum((data.values - data_equivalent.values)**2)
+                        trace_P += np.sum(data_spread.values**2)
             o_total_number += data.size - np.count_nonzero(np.isnan(data.values))
             variables_per_gridcell[one_var] = data
-        logging.info(f"total number of observations: {o_total_number}")
 
+        logging.info(f"total number of observations: {o_total_number}")
+       
         # empty ds for the new reports and observations
         ds = xr.Dataset()
 
@@ -264,6 +366,7 @@ class FeedbackFile:
             if not var in error:
                 error[var] = 0.0
 
+        
         # create reports from all observations at one gridpoint
         current_obs = 0
         offset = self.data.attrs["n_body"]
@@ -284,6 +387,9 @@ class FeedbackFile:
                     if perfect:
                         body_obs[current_obs] = value
                     else:
+                        # Yvonne added a seed for reproducability 
+                        key = hash(f"cycle:{seed}level:{level}cell:{cell}var:{var}")
+                        np.random.seed(key%(2**32))
                         body_obs[current_obs] = value + np.random.normal(0, error[var])
                     body_e_o[current_obs] = error[var]
                     body_varno[current_obs] = name2varno[var]
@@ -310,8 +416,16 @@ class FeedbackFile:
         self.data = merged
         self.data.attrs["n_hdr"] += m_valid_indices.size
         self.data.attrs["n_body"] += current_obs
+        self.data.attrs["innovation"] += innovation
+        self.data.attrs["trace_P"] += trace_P
+        self.data.attrs["innovation_qv"] += innovation_qv
+        self.data.attrs["trace_P_qv"] += trace_P_qv
         logging.info(f"new total number of reports in file: {self.data.attrs['n_hdr']}")
         logging.info(f"new total number of observations in file: {self.data.attrs['n_body']}")
+        logging.info(f"innovation: {self.data.attrs['innovation']}")
+        logging.info(f"trace_P: {self.data.attrs['trace_P']}")
+        logging.info(f"innovation_qv: {self.data.attrs['innovation_qv']}")
+        logging.info(f"trace_P_qv: {self.data.attrs['trace_P_qv']}")
 
     def write_to_file(self, filename: str):
         """
