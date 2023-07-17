@@ -58,7 +58,7 @@ fi
 # install dependencies in new mamba environment
 if [[ ! -d venv/envs/freda ]] ; then
     activate_mamba
-    micromamba create -c conda-forge -n freda
+    micromamba create -c conda-forge -n freda python=3.10
     micromamba install -c conda-forge -n freda -f requirements-mamba.txt eccodes=$EC_VERSION --yes
 fi
 
