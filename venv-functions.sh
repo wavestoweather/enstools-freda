@@ -1,3 +1,5 @@
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
 # source this file!
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]] ; then
     echo "ERROR: this file is only sourced by other venv-* files!"
@@ -30,11 +32,11 @@ function load_modules() {
 
 # activate mamba without modifying the .bashrc
 function activate_mamba() {
-    if [[ ! -f $PWD/venv/etc/profile.d/micromamba.sh ]] ; then 
-        mkdir -p $PWD/venv/etc/profile.d
-        $PWD/venv/micromamba shell hook --shell bash --prefix $PWD/venv > $PWD/venv/etc/profile.d/micromamba.sh
+    if [[ ! -f $DIR/venv/etc/profile.d/micromamba.sh ]] ; then 
+        mkdir -p $DIR/venv/etc/profile.d
+        $DIR/venv/micromamba shell hook --shell bash --prefix $DIR/venv > $DIR/venv/etc/profile.d/micromamba.sh
     fi
-    source $PWD/venv/etc/profile.d/micromamba.sh
-    export MAMBA_ROOT_PREFIX=$PWD/venv
-    export MAMBA_EXE=$PWD/venv/micromamba
+    source $DIR/venv/etc/profile.d/micromamba.sh
+    export MAMBA_ROOT_PREFIX=$DIR/venv
+    export MAMBA_EXE=$DIR/venv/micromamba
 }
