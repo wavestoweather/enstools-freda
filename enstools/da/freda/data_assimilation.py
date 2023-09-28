@@ -386,8 +386,8 @@ class DataAssimilation:
         if onRank0(self.comm):
             ff = read(filename)
             if self.adap_mult_infl == 1:
-                inflation_factor[0] = (ff.attrs["innovation"]/ff.attrs["trace_P"])[0] 
-                inflation_factor_qv[0] = (ff.attrs["innovation_qv"]/ff.attrs["trace_P_qv"])[0]
+                inflation_factor[0] = (ff.attrs["innovation"]/ff.attrs["trace_P"]) 
+                inflation_factor_qv[0] = (ff.attrs["innovation_qv"]/ff.attrs["trace_P_qv"])
             variables = {}
             for var in ff.variables:
                 variables[var] = (ff[var].shape, ff[var].dtype)
