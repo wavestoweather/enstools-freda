@@ -22,13 +22,13 @@ class EnSRF(Algorithm):
         n_inv = 1. / (n_ens - 1)
         equivalent = np.empty(n_ens, dtype=np.float32)
         deviation_equivalent_mean = np.empty(n_ens, dtype=np.float32)
-    
+        
         # observations are processed one by one in the order that they are listed in the reports array
         for i_report in range(reports.shape[0]):
             # all observations in this report are located at this index within the local part of the grid.
             grid_index = reports[i_report, 2]
             assert grid_index != -1
-
+            
             # loop over all observations in this report
             for i_obs in range(reports[i_report, 0], reports[i_report, 0] + reports[i_report, 1]):
                 obs_layer = int(observations[i_obs,2])
@@ -48,6 +48,7 @@ class EnSRF(Algorithm):
                 # loop over all grid cells and all variables that are within the localization radius
                 # This loop runs in parallel if NUMBA_NUM_THREADS is larger than 1.
                 i_points = reports[i_report, 3]
+                
                 for i_radius in prange(points_in_radius.shape[1]):
                  
                     # the number of points for each observation is not constant. stop the loop as soon as we reach
