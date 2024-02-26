@@ -169,6 +169,9 @@ def nearest_vertical_level(state: np.ndarray, state_map: np.ndarray, grid_index:
 
     return i_value - state_map[p, 0]
 
+@jit(nopython=True, nogil=True)
+def lin_solve(A,b):
+    return np.linalg.solve(A,b)
 
 @jit("f4(f4[:,:,::1], i4[:,::1], i4, f4[:,::1], i4[:,::1], i4, f4[::1], f4[::1])",
      nopython=True, nogil=True, locals={"level": i4, "i_ens": i4, "mean": f4})

@@ -2,3 +2,4 @@
 from .algorithm import Algorithm
 from .EnKF import EnKF
 from .EnSRF import EnSRF
+from .QPEns import QPEns
